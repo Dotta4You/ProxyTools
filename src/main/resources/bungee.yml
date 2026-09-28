@@ -1,0 +1,5 @@
+name: ProxyTools
+main: de.doetchen.projects.proxytools.bungee.ProxyToolsBungee
+version: '${version}'
+author: Doetchen
+description: '${description}'

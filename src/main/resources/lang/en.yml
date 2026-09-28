@@ -1,0 +1,37 @@
+# Colors: &-codes and &#RRGGBB. %prefix% is replaced by the prefix below. Apply with /proxytools reload.
+
+prefix: "&8[&bProxyTools&8] &7"
+
+messages:
+  no-permission: "%prefix%&cYou don't have permission to do that."
+
+  # shown when disconnected / blocked from joining during maintenance
+  maintenance-kick:
+    - "&c&lMaintenance"
+    - ""
+    - "&7The network is currently under maintenance."
+    - "&7Please try again later."
+
+  enabled: "%prefix%Maintenance mode is now &aenabled&7 (&f%count%&7 player(s) kicked)."
+  disabled: "%prefix%Maintenance mode is now &cdisabled&7."
+  already-on: "%prefix%Maintenance mode is already &aenabled&7."
+  already-off: "%prefix%Maintenance mode is already &cdisabled&7."
+  status-on: "%prefix%Maintenance mode is currently &aenabled&7."
+  status-off: "%prefix%Maintenance mode is currently &cdisabled&7."
+
+  whitelist-added: "%prefix%&f%player% &7was added to the maintenance whitelist."
+  whitelist-added-pending: "%prefix%&f%player% &7is not online right now, so their account could not be identified yet. They were added by name and will be fully whitelisted (by UUID) the next time they join."
+  whitelist-already: "%prefix%&f%player% &7is already on the maintenance whitelist."
+  whitelist-removed: "%prefix%&f%player% &7was removed from the maintenance whitelist."
+  whitelist-missing: "%prefix%&f%player% &7is not on the maintenance whitelist."
+  whitelist-empty: "%prefix%The maintenance whitelist is empty."
+  whitelist-list: "%prefix%Maintenance whitelist (&f%count%&7): &f%players%"
+  whitelist-pending-suffix: " &8(pending)" # appended in whitelist-list for unresolved entries
+
+  usage-maintenance: "%prefix%Usage: &f/maintenance <on|off|toggle|status>"
+  usage-whitelist: "%prefix%Usage: &f/maintenance whitelist <add|remove|list> [player]"
+  usage-proxytools: "%prefix%Usage: &f/proxytools <info|reload>"
+
+  info: "%prefix%ProxyTools &fv%version% &7on &f%platform%"
+  reloaded: "%prefix%Configuration reloaded."
+  reload-failed: "%prefix%&cReload failed, see the console. The previous configuration stays active."

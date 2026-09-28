@@ -1,0 +1,56 @@
+# ProxyTools config. Apply changes with /proxytools reload.
+
+# Message language. Built-in: en, de. Add your own by copying lang/en.yml to lang/<code>.yml.
+language: en
+
+# Colors: &-codes, &#RRGGBB hex, <gradient:#RRGGBB:#RRGGBB>text</gradient>, <rainbow>text</rainbow>.
+# Placeholders: %online%, %max%.
+#
+# Favicon: put a 64x64 icon.png in this folder for the server icon. icon-maintenance.png overrides
+# it while maintenance is on. Both are picked up live, no reload needed.
+
+# Server list MOTD while maintenance is OFF.
+motd:
+  enabled: true
+
+  # random: picks a random entry each ping. sequential: cycles through them in order.
+  mode: random
+
+  entries:
+    - line1: "&6&lMy Network &8» &fWelcome!"
+      line2: "&7Play now on &b%online%&7 online players"
+    - line1: "&6&lMy Network &8» &fNew season is live!"
+      line2: "&7Join now and have fun"
+    - line1: "<gradient:#00c6ff:#0072ff>My Network</gradient>"
+      line2: "&7%online%&7/&7%max% &7online &8- &7<rainbow>have fun!</rainbow>"
+
+  max-players: -1 # -1 keeps the proxy's own value
+
+  hover:
+    enabled: false
+    mode: custom # custom: show the lines below. players: show the real online players.
+    lines:
+      - "&6&lMy Network"
+      - "&7%online%/%max% players online"
+
+maintenance:
+  kick-on-enable: true # disconnect everyone without bypass/whitelist when maintenance turns on
+
+  # Replaces the version string in the server list; the client shows it in red as incompatible.
+  # Leave empty to keep the real version.
+  version-text: "&cMaintenance"
+
+  # Server list MOTD while maintenance is ON, same options as motd above.
+  motd:
+    enabled: true
+    mode: random
+    entries:
+      - line1: "&6&lMy Network &8» &c&lMaintenance"
+        line2: "&7We are working on the network, back soon!"
+    max-players: -1
+    hover:
+      enabled: true
+      mode: custom
+      lines:
+        - "&c&lMaintenance"
+        - "&7The network is currently closed."

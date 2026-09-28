@@ -1,0 +1,37 @@
+# Farben: &-Codes und &#RRGGBB. %prefix% wird durch den Prefix unten ersetzt. Mit /proxytools reload übernehmen.
+
+prefix: "&8[&bProxyTools&8] &7"
+
+messages:
+  no-permission: "%prefix%&cDafür hast du keine Berechtigung."
+
+  # wird beim Trennen / Join-Sperre während der Wartung angezeigt
+  maintenance-kick:
+    - "&c&lWartungsmodus"
+    - ""
+    - "&7Das Netzwerk befindet sich gerade in Wartung."
+    - "&7Bitte versuche es später erneut."
+
+  enabled: "%prefix%Wartungsmodus ist jetzt &aaktiviert&7 (&f%count%&7 Spieler gekickt)."
+  disabled: "%prefix%Wartungsmodus ist jetzt &cdeaktiviert&7."
+  already-on: "%prefix%Wartungsmodus ist bereits &aaktiviert&7."
+  already-off: "%prefix%Wartungsmodus ist bereits &cdeaktiviert&7."
+  status-on: "%prefix%Wartungsmodus ist aktuell &aaktiviert&7."
+  status-off: "%prefix%Wartungsmodus ist aktuell &cdeaktiviert&7."
+
+  whitelist-added: "%prefix%&f%player% &7wurde zur Wartungs-Whitelist hinzugefügt."
+  whitelist-added-pending: "%prefix%&f%player% &7ist gerade nicht online und konnte daher nicht eindeutig zugeordnet werden. Der Name wurde vorgemerkt und wird beim nächsten Join automatisch anhand der UUID vervollständigt."
+  whitelist-already: "%prefix%&f%player% &7steht bereits auf der Wartungs-Whitelist."
+  whitelist-removed: "%prefix%&f%player% &7wurde von der Wartungs-Whitelist entfernt."
+  whitelist-missing: "%prefix%&f%player% &7steht nicht auf der Wartungs-Whitelist."
+  whitelist-empty: "%prefix%Die Wartungs-Whitelist ist leer."
+  whitelist-list: "%prefix%Wartungs-Whitelist (&f%count%&7): &f%players%"
+  whitelist-pending-suffix: " &8(ausstehend)" # Anhang in whitelist-list für unbestätigte Einträge
+
+  usage-maintenance: "%prefix%Verwendung: &f/maintenance <on|off|toggle|status>"
+  usage-whitelist: "%prefix%Verwendung: &f/maintenance whitelist <add|remove|list> [Spieler]"
+  usage-proxytools: "%prefix%Verwendung: &f/proxytools <info|reload>"
+
+  info: "%prefix%ProxyTools &fv%version% &7auf &f%platform%"
+  reloaded: "%prefix%Konfiguration neu geladen."
+  reload-failed: "%prefix%&cReload fehlgeschlagen, siehe Konsole. Die vorherige Konfiguration bleibt aktiv."

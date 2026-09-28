@@ -1,0 +1,9 @@
+{
+  "id": "proxytools",
+  "name": "ProxyTools",
+  "version": "${version}",
+  "description": "${description}",
+  "authors": ["Doetchen"],
+  "dependencies": [],
+  "main": "de.doetchen.projects.proxytools.velocity.ProxyToolsVelocity"
+}
