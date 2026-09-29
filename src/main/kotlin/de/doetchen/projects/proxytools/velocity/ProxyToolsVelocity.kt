@@ -6,6 +6,7 @@ import com.velocitypowered.api.command.SimpleCommand
 import com.velocitypowered.api.event.ResultedEvent
 import com.velocitypowered.api.event.Subscribe
 import com.velocitypowered.api.event.connection.LoginEvent
+import com.velocitypowered.api.event.player.ServerPreConnectEvent
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent
 import com.velocitypowered.api.event.proxy.ProxyPingEvent
 import com.velocitypowered.api.plugin.Plugin
@@ -15,10 +16,12 @@ import com.velocitypowered.api.proxy.ProxyServer
 import com.velocitypowered.api.proxy.server.ServerPing
 import com.velocitypowered.api.util.Favicon
 import de.doetchen.projects.proxytools.core.CommandActor
+import de.doetchen.projects.proxytools.core.FaviconConverter
 import de.doetchen.projects.proxytools.core.MotdService
 import de.doetchen.projects.proxytools.core.Platform
 import de.doetchen.projects.proxytools.core.PlatformPlayer
 import de.doetchen.projects.proxytools.core.ProxyToolsCore
+import de.doetchen.projects.proxytools.core.ScheduledTask
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
 import org.bstats.charts.SimplePie
@@ -27,12 +30,11 @@ import org.slf4j.Logger
 import java.io.ByteArrayInputStream
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
 
-// bStats plugin ID for Velocity, see https://bstats.org/plugin/velocity/ProxyTools/34377
 private const val BSTATS_PLUGIN_ID = 34377
 
-// metadata lives in velocity-plugin.json, the annotation processor doesn't run for Kotlin
 @Plugin(id = "proxytools", name = "ProxyTools")
 class ProxyToolsVelocity @Inject constructor(
     private val server: ProxyServer,
@@ -44,22 +46,23 @@ class ProxyToolsVelocity @Inject constructor(
 
     @Subscribe
     fun onProxyInitialization(event: ProxyInitializeEvent) {
-        val version = server.pluginManager.getPlugin("proxytools")
-            .flatMap { it.description.version }
-            .orElse("unknown")
-        core = ProxyToolsCore(VelocityPlatform(server, logger, dataDirectory, version))
+        try {
+            val version = server.pluginManager.getPlugin("proxytools")
+                .flatMap { it.description.version }
+                .orElse("unknown")
+            core = ProxyToolsCore(VelocityPlatform(server, logger, dataDirectory, version, this))
 
-        server.eventManager.register(this, VelocityListener(core))
-        register("maintenance", core.commands::maintenance, core.commands::suggestMaintenance)
-        register("proxytools", core.commands::proxyTools, core.commands::suggestProxyTools, "pt")
-        setUpMetrics()
-    }
-
-    private fun setUpMetrics() {
-        if (BSTATS_PLUGIN_ID == 0) return
-        val metrics = metricsFactory.make(this, BSTATS_PLUGIN_ID)
-        metrics.addCustomChart(SimplePie("language") { core.metricsSnapshot()["language"] })
-        metrics.addCustomChart(SimplePie("maintenance_enabled") { core.metricsSnapshot()["maintenance"] })
+            server.eventManager.register(this, VelocityListener(core, server))
+            register("maintenance", core.commands::maintenance, core.commands::suggestMaintenance)
+            register("proxytools", core.commands::proxyTools, core.commands::suggestProxyTools, "pt")
+            register("broadcast", core.commands::broadcast, core.commands::suggestBroadcast, "bc")
+            val metrics = metricsFactory.make(this, BSTATS_PLUGIN_ID)
+            core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
+        } catch (e: Exception) {
+            logger.error("ProxyTools failed to start, disabling", e)
+            server.eventManager.unregisterListeners(this)
+            listOf("maintenance", "proxytools", "broadcast").forEach { server.commandManager.unregister(it) }
+        }
     }
 
     private fun register(
@@ -82,20 +85,37 @@ private class VelocityPlatform(
     private val logger: Logger,
     override val dataFolder: Path,
     override val pluginVersion: String,
+    private val plugin: Any,
 ) : Platform {
     override val platformName = "Velocity"
-    override val onlinePlayers get() = server.allPlayers.map(::VelocityPlayer)
+    override val proxyName: String get() = server.version.name
+    override val proxyVersion: String get() = server.version.version
+    override val onlinePlayers get() = server.allPlayers.map { VelocityPlayer(it, server) }
+    override val configuredMaxPlayers: Int get() = server.configuration.showMaxPlayers
 
     override fun info(message: String) = logger.info(message)
     override fun warn(message: String) = logger.warn(message)
+    override fun now(): Long = System.currentTimeMillis()
+
+    override fun runLater(delayMillis: Long, task: () -> Unit): ScheduledTask {
+        val handle = server.scheduler.buildTask(plugin, Runnable { task() }).delay(delayMillis, TimeUnit.MILLISECONDS).schedule()
+        return ScheduledTask { handle.cancel() }
+    }
 }
 
-private class VelocityPlayer(private val player: Player) : PlatformPlayer {
+private class VelocityPlayer(private val player: Player, private val server: ProxyServer) : PlatformPlayer {
     override val uniqueId: UUID get() = player.uniqueId
     override val name: String get() = player.username
 
     override fun hasPermission(permission: String) = player.hasPermission(permission)
     override fun disconnect(message: String) = player.disconnect(component(message))
+    override fun sendMessage(message: String) = player.sendMessage(component(message))
+
+    override fun redirectTo(serverName: String): Boolean {
+        val target = server.getServer(serverName).orElse(null) ?: return false
+        player.createConnectionRequest(target).connect()
+        return true
+    }
 }
 
 private class VelocityActor(private val source: CommandSource) : CommandActor {
@@ -107,7 +127,6 @@ private class VelocityCommand(
     private val executor: (CommandActor, List<String>) -> Unit,
     private val completer: (CommandActor, List<String>) -> List<String>,
 ) : SimpleCommand {
-    // permission checks happen in the core, so unauthorized users still get a proper message
     override fun hasPermission(invocation: SimpleCommand.Invocation) = true
 
     override fun execute(invocation: SimpleCommand.Invocation) =
@@ -117,10 +136,8 @@ private class VelocityCommand(
         completer(VelocityActor(invocation.source()), invocation.arguments().toList())
 }
 
-class VelocityListener(private val core: ProxyToolsCore) {
-    // only rebuilt when the source bytes change, Favicon.create() re-encodes the image
-    private var cachedFaviconBytes: ByteArray? = null
-    private var cachedFavicon: Favicon? = null
+class VelocityListener(private val core: ProxyToolsCore, private val server: ProxyServer) {
+    private val favicons = FaviconConverter(core.platform::warn) { Favicon.create(ImageIO.read(ByteArrayInputStream(it))) }
 
     @Subscribe
     fun onPing(event: ProxyPingEvent) {
@@ -135,31 +152,34 @@ class VelocityListener(private val core: ProxyToolsCore) {
             builder.clearSamplePlayers()
             builder.samplePlayers(*lines.map { ServerPing.SamplePlayer(it, MotdService.HOVER_UUID) }.toTypedArray())
         }
-        // protocol -1 -> client shows it in red as an incompatible version
         override.versionName?.let { builder.version(ServerPing.Version(-1, it)) }
-        favicon(override.faviconBytes)?.let { builder.favicon(it) }
+        favicons.get(override.faviconBytes)?.let { builder.favicon(it) }
         event.ping = builder.build()
-    }
-
-    private fun favicon(bytes: ByteArray?): Favicon? {
-        if (bytes == null) {
-            cachedFaviconBytes = null
-            cachedFavicon = null
-            return null
-        }
-        if (bytes !== cachedFaviconBytes) {
-            cachedFavicon = runCatching { Favicon.create(ImageIO.read(ByteArrayInputStream(bytes))) }
-                .onFailure { core.platform.warn("Could not read favicon: ${it.message}") }
-                .getOrNull()
-            cachedFaviconBytes = bytes
-        }
-        return cachedFavicon
     }
 
     @Subscribe
     fun onLogin(event: LoginEvent) {
-        if (core.maintenance.enabled && !core.maintenance.canBypass(VelocityPlayer(event.player))) {
+        if (!core.maintenance.enabled || core.maintenance.redirectTarget() != null) return
+        if (!core.maintenance.canBypass(VelocityPlayer(event.player, server))) {
             event.result = ResultedEvent.ComponentResult.denied(component(core.maintenance.kickMessage()))
         }
+    }
+
+    @Subscribe
+    fun onServerPreConnect(event: ServerPreConnectEvent) {
+        if (!core.maintenance.enabled) return
+        val targetName = core.maintenance.redirectTarget() ?: return
+        val player = VelocityPlayer(event.player, server)
+        if (core.maintenance.canBypass(player)) return
+
+        val redirect = server.getServer(targetName).orElse(null)
+        if (redirect == null) {
+            core.platform.warn("maintenance.redirect-server '$targetName' does not exist; kicking instead.")
+            event.player.disconnect(component(core.maintenance.kickMessage()))
+            event.result = ServerPreConnectEvent.ServerResult.denied()
+            return
+        }
+        if (event.originalServer != redirect) player.sendMessage(core.maintenance.redirectMessage())
+        event.result = ServerPreConnectEvent.ServerResult.allowed(redirect)
     }
 }

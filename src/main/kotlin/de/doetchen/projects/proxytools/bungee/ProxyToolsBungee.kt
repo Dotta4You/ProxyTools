@@ -1,10 +1,12 @@
 package de.doetchen.projects.proxytools.bungee
 
 import de.doetchen.projects.proxytools.core.CommandActor
+import de.doetchen.projects.proxytools.core.FaviconConverter
 import de.doetchen.projects.proxytools.core.MotdService
 import de.doetchen.projects.proxytools.core.Platform
 import de.doetchen.projects.proxytools.core.PlatformPlayer
 import de.doetchen.projects.proxytools.core.ProxyToolsCore
+import de.doetchen.projects.proxytools.core.ScheduledTask
 import net.md_5.bungee.api.CommandSender
 import net.md_5.bungee.api.Favicon
 import net.md_5.bungee.api.ProxyServer
@@ -14,58 +16,66 @@ import net.md_5.bungee.api.chat.TextComponent
 import net.md_5.bungee.api.connection.ProxiedPlayer
 import net.md_5.bungee.api.event.PostLoginEvent
 import net.md_5.bungee.api.event.ProxyPingEvent
+import net.md_5.bungee.api.event.ServerConnectEvent
 import net.md_5.bungee.api.plugin.Command
 import net.md_5.bungee.api.plugin.Listener
 import net.md_5.bungee.api.plugin.Plugin
 import net.md_5.bungee.api.plugin.TabExecutor
+import net.md_5.bungee.api.scheduler.ScheduledTask as BungeeScheduledTask
 import net.md_5.bungee.event.EventHandler
 import org.bstats.bungeecord.Metrics
 import org.bstats.charts.SimplePie
 import java.io.ByteArrayInputStream
 import java.nio.file.Path
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
 
-// bStats plugin ID for BungeeCord, see https://bstats.org/plugin/bungeecord/ProxyTools/34376
 private const val BSTATS_PLUGIN_ID = 34376
 
 class ProxyToolsBungee : Plugin() {
     private lateinit var core: ProxyToolsCore
 
     override fun onEnable() {
-        core = ProxyToolsCore(BungeePlatform(this))
-        proxy.pluginManager.registerListener(this, BungeeListener(core))
-        proxy.pluginManager.registerCommand(
-            this,
-            BungeeCommand("maintenance", core.commands::maintenance, core.commands::suggestMaintenance),
-        )
-        proxy.pluginManager.registerCommand(
-            this,
-            BungeeCommand("proxytools", core.commands::proxyTools, core.commands::suggestProxyTools, "pt"),
-        )
-        setUpMetrics()
-    }
-
-    private fun setUpMetrics() {
-        if (BSTATS_PLUGIN_ID == 0) return
-        val metrics = Metrics(this, BSTATS_PLUGIN_ID)
-        metrics.addCustomChart(SimplePie("language") { core.metricsSnapshot()["language"] })
-        metrics.addCustomChart(SimplePie("maintenance_enabled") { core.metricsSnapshot()["maintenance"] })
+        try {
+            core = ProxyToolsCore(BungeePlatform(this))
+            proxy.pluginManager.registerListener(this, BungeeListener(core))
+            listOf(
+                BungeeCommand("maintenance", core.commands::maintenance, core.commands::suggestMaintenance),
+                BungeeCommand("proxytools", core.commands::proxyTools, core.commands::suggestProxyTools, "pt"),
+                BungeeCommand("broadcast", core.commands::broadcast, core.commands::suggestBroadcast, "bc"),
+            ).forEach { proxy.pluginManager.registerCommand(this, it) }
+            val metrics = Metrics(this, BSTATS_PLUGIN_ID)
+            core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
+        } catch (e: Exception) {
+            logger.severe("ProxyTools failed to start, disabling: ${e.message}")
+            proxy.pluginManager.unregisterCommands(this)
+            proxy.pluginManager.unregisterListeners(this)
+        }
     }
 }
 
-// fromLegacy() would be nicer, but older BungeeCord builds don't have it yet
 @Suppress("DEPRECATION")
 private fun legacy(text: String): Array<BaseComponent> = TextComponent.fromLegacyText(text)
 
 private class BungeePlatform(private val plugin: Plugin) : Platform {
     override val platformName = "BungeeCord"
     override val pluginVersion: String get() = plugin.description.version
+    override val proxyName: String get() = ProxyServer.getInstance().name
+    override val proxyVersion: String get() = ProxyServer.getInstance().version
     override val dataFolder: Path get() = plugin.dataFolder.toPath()
     override val onlinePlayers get() = ProxyServer.getInstance().players.map(::BungeePlayer)
+    override val configuredMaxPlayers: Int get() = ProxyServer.getInstance().config.playerLimit
 
     override fun info(message: String) = plugin.logger.info(message)
     override fun warn(message: String) = plugin.logger.warning(message)
+    override fun now(): Long = System.currentTimeMillis()
+
+    override fun runLater(delayMillis: Long, task: () -> Unit): ScheduledTask {
+        val handle: BungeeScheduledTask =
+            ProxyServer.getInstance().scheduler.schedule(plugin, Runnable { task() }, delayMillis, TimeUnit.MILLISECONDS)
+        return ScheduledTask { handle.cancel() }
+    }
 }
 
 private class BungeePlayer(private val player: ProxiedPlayer) : PlatformPlayer {
@@ -74,6 +84,13 @@ private class BungeePlayer(private val player: ProxiedPlayer) : PlatformPlayer {
 
     override fun hasPermission(permission: String) = player.hasPermission(permission)
     override fun disconnect(message: String) = player.disconnect(*legacy(message))
+    override fun sendMessage(message: String) = player.sendMessage(*legacy(message))
+
+    override fun redirectTo(serverName: String): Boolean {
+        val target = ProxyServer.getInstance().getServerInfo(serverName) ?: return false
+        player.connect(target)
+        return true
+    }
 }
 
 private class BungeeActor(private val sender: CommandSender) : CommandActor {
@@ -94,9 +111,7 @@ private class BungeeCommand(
 }
 
 class BungeeListener(private val core: ProxyToolsCore) : Listener {
-    // only rebuilt when the source bytes change, Favicon.create() re-encodes the image
-    private var cachedFaviconBytes: ByteArray? = null
-    private var cachedFavicon: Favicon? = null
+    private val favicons = FaviconConverter(core.platform::warn) { Favicon.create(ImageIO.read(ByteArrayInputStream(it))) }
 
     @EventHandler
     fun onPing(event: ProxyPingEvent) {
@@ -109,32 +124,32 @@ class BungeeListener(private val core: ProxyToolsCore) : Listener {
         override.hoverLines?.let { lines ->
             players.sample = lines.map { ServerPing.PlayerInfo(it, MotdService.HOVER_UUID) }.toTypedArray()
         }
-        // protocol -1 -> client shows it in red as an incompatible version
         override.versionName?.let { ping.version = ServerPing.Protocol(it, -1) }
-        favicon(override.faviconBytes)?.let { ping.setFavicon(it) }
+        favicons.get(override.faviconBytes)?.let { ping.setFavicon(it) }
     }
 
-    private fun favicon(bytes: ByteArray?): Favicon? {
-        if (bytes == null) {
-            cachedFaviconBytes = null
-            cachedFavicon = null
-            return null
-        }
-        if (bytes !== cachedFaviconBytes) {
-            cachedFavicon = runCatching { Favicon.create(ImageIO.read(ByteArrayInputStream(bytes))) }
-                .onFailure { core.platform.warn("Could not read favicon: ${it.message}") }
-                .getOrNull()
-            cachedFaviconBytes = bytes
-        }
-        return cachedFavicon
-    }
-
-    // permissions aren't available yet in LoginEvent, so this checks after login instead
     @EventHandler
     fun onPostLogin(event: PostLoginEvent) {
+        if (!core.maintenance.enabled || core.maintenance.redirectTarget() != null) return
         val player = BungeePlayer(event.player)
-        if (core.maintenance.enabled && !core.maintenance.canBypass(player)) {
-            player.disconnect(core.maintenance.kickMessage())
+        if (!core.maintenance.canBypass(player)) player.disconnect(core.maintenance.kickMessage())
+    }
+
+    @EventHandler
+    fun onServerConnect(event: ServerConnectEvent) {
+        if (!core.maintenance.enabled) return
+        val targetName = core.maintenance.redirectTarget() ?: return
+        val player = BungeePlayer(event.player)
+        if (core.maintenance.canBypass(player)) return
+
+        val redirect = ProxyServer.getInstance().getServerInfo(targetName)
+        if (redirect == null) {
+            core.platform.warn("maintenance.redirect-server '$targetName' does not exist; kicking instead.")
+            event.player.disconnect(*legacy(core.maintenance.kickMessage()))
+            event.isCancelled = true
+            return
         }
+        if (event.target != redirect) player.sendMessage(core.maintenance.redirectMessage())
+        event.target = redirect
     }
 }

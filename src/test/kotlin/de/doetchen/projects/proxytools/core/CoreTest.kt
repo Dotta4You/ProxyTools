@@ -5,6 +5,7 @@ import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -14,12 +15,23 @@ private class FakePlayer(
     override val name: String,
     private val permissions: Set<String> = emptySet(),
     override val uniqueId: UUID = UUID.randomUUID(),
+    private val knownServers: Set<String> = setOf("lobby"),
 ) : PlatformPlayer {
     var kickedWith: String? = null
+    var redirectedTo: String? = null
+    val received = mutableListOf<String>()
 
     override fun hasPermission(permission: String) = permission in permissions
     override fun disconnect(message: String) {
         kickedWith = message
+    }
+    override fun sendMessage(message: String) {
+        received += message
+    }
+    override fun redirectTo(serverName: String): Boolean {
+        if (serverName !in knownServers) return false
+        redirectedTo = serverName
+        return true
     }
 }
 
@@ -35,11 +47,35 @@ private class FakeActor(private val permissions: Set<String> = emptySet()) : Com
 private class FakePlatform(override val dataFolder: Path) : Platform {
     override val platformName = "Test"
     override val pluginVersion = "0.0.0"
+    override val proxyName = "TestProxy"
+    override val proxyVersion = "1.0"
+    override val configuredMaxPlayers = 100
     val players = mutableListOf<FakePlayer>()
+    val loggedInfo = mutableListOf<String>()
     override val onlinePlayers: Collection<PlatformPlayer> get() = players.toList()
 
-    override fun info(message: String) = Unit
+    var clock = 0L
+    private data class Pending(val fireAt: Long, val task: () -> Unit, val cancelled: BooleanArray)
+    private val scheduled = mutableListOf<Pending>()
+
+    override fun info(message: String) {
+        loggedInfo += message
+    }
     override fun warn(message: String) = println("WARN: $message")
+    override fun now(): Long = clock
+
+    override fun runLater(delayMillis: Long, task: () -> Unit): ScheduledTask {
+        val cancelled = booleanArrayOf(false)
+        scheduled += Pending(clock + delayMillis, task, cancelled)
+        return ScheduledTask { cancelled[0] = true }
+    }
+
+    fun advance(byMillis: Long) {
+        clock += byMillis
+        val due = scheduled.filter { it.fireAt <= clock }
+        scheduled.removeAll(due)
+        due.filterNot { it.cancelled[0] }.sortedBy { it.fireAt }.forEach { it.task() }
+    }
 }
 
 class CoreTest {
@@ -57,7 +93,6 @@ class CoreTest {
     @Test
     fun `gradient colors each character between the two hex colors`() {
         val result = Text.colorize("<gradient:#ff0000:#0000ff>ab</gradient>")
-        // a -> red, b -> blue
         assertEquals("§x§f§f§0§0§0§0a§x§0§0§0§0§f§fb", result)
     }
 
@@ -71,6 +106,29 @@ class CoreTest {
     @Test
     fun `placeholders are replaced`() {
         assertEquals("3/10", Text.replace("%online%/%max%", "online" to "3", "max" to "10"))
+    }
+
+    @Test
+    fun `startup banner reports plugin, proxy and language`() {
+        core()
+        val banner = platform.loggedInfo.joinToString("\n")
+        assertTrue(banner.contains("0.0.0"))
+        assertTrue(banner.contains("TestProxy"))
+        assertTrue(banner.contains("en"))
+    }
+
+    @Test
+    fun `startup banner surfaces a running timer after a restart`() {
+        core().maintenance.enableFor(60_000)
+        core()
+        assertTrue(platform.loggedInfo.joinToString("\n").contains("1m"))
+    }
+
+    @Test
+    fun `startup banner surfaces a pending schedule after a restart`() {
+        core().maintenance.scheduleStart(60_000, 30_000)
+        core()
+        assertTrue(platform.loggedInfo.joinToString("\n").contains("1m"))
     }
 
     @Test
@@ -137,14 +195,50 @@ class CoreTest {
     }
 
     @Test
-    fun `sequential mode cycles through entries in order`() {
+    fun `sequential motd is sticky within an interval, then advances`() {
         Files.writeString(
             folder.resolve("config.yml"),
-            "motd:\n  mode: sequential\n  entries:\n    - line1: 'one'\n    - line1: 'two'\n",
+            "motd:\n  mode: sequential\n  interval-seconds: 5\n  entries:\n    - line1: 'one'\n    - line1: 'two'\n",
         )
         val core = core()
-        val descriptions = (1..4).map { core.motd.build(0, 10)!!.description }
-        assertEquals(listOf("one", "two", "one", "two"), descriptions)
+        assertEquals("one", core.motd.build(0, 10)!!.description)
+        platform.advance(4_000)
+        assertEquals("one", core.motd.build(0, 10)!!.description, "still the same entry within the interval")
+        platform.advance(1_000)
+        assertEquals("two", core.motd.build(0, 10)!!.description, "next interval, next entry")
+    }
+
+    @Test
+    fun `static motd always uses the first entry`() {
+        Files.writeString(
+            folder.resolve("config.yml"),
+            "motd:\n  mode: static\n  interval-seconds: 1\n  entries:\n    - line1: 'one'\n    - line1: 'two'\n",
+        )
+        val core = core()
+        repeat(5) {
+            assertEquals("one", core.motd.build(0, 10)!!.description)
+            platform.advance(1_000)
+        }
+    }
+
+    @Test
+    fun `motd placeholders stay live even though the template is cached per interval`() {
+        Files.writeString(folder.resolve("config.yml"), "motd:\n  entries:\n    - line1: '%online%'\n")
+        val core = core()
+        assertEquals("3", core.motd.build(3, 100)!!.description)
+        assertEquals("7", core.motd.build(7, 100)!!.description, "same bucket, but online count must stay live")
+    }
+
+    @Test
+    fun `random motd is sticky within an interval`() {
+        Files.writeString(
+            folder.resolve("config.yml"),
+            "motd:\n  interval-seconds: 5\n  entries:\n    - line1: 'a'\n    - line1: 'b'\n    - line1: 'c'\n",
+        )
+        val core = core()
+        val first = core.motd.build(0, 10)!!.description
+        platform.advance(4_000)
+        assertEquals(first, core.motd.build(0, 10)!!.description)
     }
 
     @Test
@@ -180,8 +274,6 @@ class CoreTest {
         assertEquals(listOf<Byte>(1), first!!.toList())
         assertTrue(first === cache.bytes("icon.png"), "unchanged file should return the same instance")
 
-        // Bump the mtime explicitly: some filesystems have a coarser timestamp resolution than a
-        // fast test can otherwise produce between two writes.
         Files.write(file, byteArrayOf(2))
         Files.setLastModifiedTime(file, java.nio.file.attribute.FileTime.fromMillis(Files.getLastModifiedTime(file).toMillis() + 5000))
         val second = cache.bytes("icon.png")
@@ -221,14 +313,12 @@ class CoreTest {
         val core = core()
         core.store.addPending("Alice")
         val impostor = UUID.randomUUID()
-        // a different player using the same name must NOT be treated as whitelisted after someone else claimed it
         assertFalse(core.store.isWhitelisted(impostor))
 
         val realAlice = UUID.randomUUID()
         assertTrue(core.store.onPlayerSeen(realAlice, "Alice"))
         assertTrue(core.store.isWhitelisted(realAlice))
 
-        // a later account reusing the name (e.g. after a rename) is not automatically whitelisted
         assertFalse(core.store.isWhitelisted(impostor))
     }
 
@@ -316,10 +406,456 @@ class CoreTest {
     }
 
     @Test
+    fun `tab completion offers no duration after schedule cancel`() {
+        val core = core()
+        val admin = FakeActor(setOf(Permissions.MAINTENANCE))
+        assertEquals(listOf("cancel", "10m", "30m", "1h"), core.commands.suggestMaintenance(admin, listOf("schedule", "")))
+        assertEquals(listOf("10m", "30m", "1h"), core.commands.suggestMaintenance(admin, listOf("schedule", "10m", "")))
+        assertEquals(emptyList(), core.commands.suggestMaintenance(admin, listOf("schedule", "cancel", "")))
+    }
+
+    @Test
     fun `reload command`() {
         val core = core()
         val admin = FakeActor(setOf(Permissions.RELOAD))
         core.commands.proxyTools(admin, listOf("reload"))
         assertTrue(admin.messages.single().contains("reloaded"))
+    }
+
+    @Test
+    fun `duration text parses and formats`() {
+        assertEquals(90_000L, DurationText.parseMillis("1m30s"))
+        assertEquals(3_600_000L, DurationText.parseMillis("1h"))
+        assertNull(DurationText.parseMillis("garbage"))
+        assertNull(DurationText.parseMillis("0s"))
+        assertNull(DurationText.parseMillis("30m1h"))
+
+        assertEquals("1h 2m", DurationText.format(3725))
+        assertEquals("45s", DurationText.format(45))
+        assertEquals("0s", DurationText.format(0))
+    }
+
+    @Test
+    fun `maintenance timer auto-disables after the duration and reports it`() {
+        val core = core()
+        val admin = FakeActor(setOf(Permissions.MAINTENANCE))
+        core.commands.maintenance(admin, listOf("on", "5s"))
+        assertTrue(admin.messages.last().contains("5s"))
+        assertTrue(core.maintenance.enabled)
+
+        platform.advance(4_999)
+        assertTrue(core.maintenance.enabled)
+        platform.advance(1)
+        assertFalse(core.maintenance.enabled)
+    }
+
+    @Test
+    fun `invalid duration is rejected without changing state`() {
+        val core = core()
+        val admin = FakeActor(setOf(Permissions.MAINTENANCE))
+        core.commands.maintenance(admin, listOf("on", "notaduration"))
+        assertFalse(core.maintenance.enabled)
+        assertTrue(admin.messages.last().contains("notaduration"))
+    }
+
+    @Test
+    fun `enableFor rejects a non-positive duration`() {
+        assertFailsWith<IllegalArgumentException> { core().maintenance.enableFor(0) }
+    }
+
+    @Test
+    fun `enableFor refuses to replace an already-running timer`() {
+        val core = core()
+        assertTrue(core.maintenance.enableFor(60_000) is TimerResult.Started)
+        assertEquals(TimerResult.AlreadyRunning, core.maintenance.enableFor(30_000))
+
+        platform.advance(59_999)
+        assertTrue(core.maintenance.enabled, "the second call must not have shortened the original timer")
+    }
+
+    @Test
+    fun `command rejects setting a new duration while one is already running`() {
+        val core = core()
+        val admin = FakeActor(setOf(Permissions.MAINTENANCE))
+        core.commands.maintenance(admin, listOf("on", "10m"))
+        core.commands.maintenance(admin, listOf("on", "5m"))
+        assertTrue(admin.messages.last().contains("10m"), "should report the still-running timer's remaining time")
+    }
+
+    @Test
+    fun `timer-warnings ignores non-positive and duplicate entries instead of misfiring`() {
+        Files.writeString(folder.resolve("config.yml"), "maintenance:\n  timer-warnings: [5, 5, -1, 0]\n")
+        val core = core()
+        val staff = FakePlayer("Staff", setOf(Permissions.MAINTENANCE_BYPASS))
+        platform.players += staff
+
+        core.maintenance.enableFor(10_000)
+        platform.advance(5_000)
+        assertEquals(1, staff.received.count { it.contains("5s") }, "the duplicate 5 must not fire twice")
+        platform.advance(5_000)
+        assertFalse(core.maintenance.enabled)
+    }
+
+    @Test
+    fun `adding a player by uuid supersedes an earlier pending entry under their name`() {
+        val core = core()
+        core.store.addPending("Alice")
+        val realUuid = UUID.randomUUID()
+        core.store.addResolved(realUuid, "Alice")
+
+        val impostor = UUID.randomUUID()
+        assertFalse(core.store.isWhitelisted(impostor))
+        assertFalse(core.store.onPlayerSeen(impostor, "Alice"))
+        assertFalse(core.store.isWhitelisted(impostor))
+
+        assertTrue(core.store.isWhitelisted(realUuid))
+        assertEquals(listOf("Alice"), core.store.entries().map { it.name }, "no leftover duplicate entry")
+    }
+
+    @Test
+    fun `manually turning maintenance off cancels a pending timer`() {
+        val core = core()
+        core.maintenance.enableFor(5_000)
+        core.maintenance.setEnabled(false)
+        platform.advance(10_000)
+        assertFalse(core.maintenance.enabled)
+    }
+
+    @Test
+    fun `timer warnings are broadcast to online players before it ends`() {
+        Files.writeString(folder.resolve("config.yml"), "maintenance:\n  timer-warnings: [5]\n")
+        val core = core()
+        val staff = FakePlayer("Staff", setOf(Permissions.MAINTENANCE_BYPASS))
+        platform.players += staff
+
+        core.maintenance.enableFor(10_000)
+        platform.advance(5_000)
+        assertTrue(staff.received.any { it.contains("5s") })
+        platform.advance(5_000)
+        assertFalse(core.maintenance.enabled)
+    }
+
+    @Test
+    fun `a running timer resumes after a restart`() {
+        core().maintenance.enableFor(60_000)
+        val restarted = core()
+        assertTrue(restarted.maintenance.enabled)
+        platform.advance(59_000)
+        assertTrue(restarted.maintenance.enabled)
+        platform.advance(1_000)
+        assertFalse(restarted.maintenance.enabled)
+    }
+
+    @Test
+    fun `status permission works independently of the full maintenance permission`() {
+        val core = core()
+        val viewer = FakeActor(setOf(Permissions.MAINTENANCE_STATUS))
+        core.commands.maintenance(viewer, listOf("status"))
+        assertTrue(viewer.messages.single().contains("disabled"))
+
+        viewer.messages.clear()
+        core.commands.maintenance(viewer, listOf("on"))
+        assertFalse(core.maintenance.enabled)
+        assertTrue(viewer.messages.single().contains("permission"))
+    }
+
+    @Test
+    fun `status shows remaining time for a running timer`() {
+        val core = core()
+        core.maintenance.enableFor(60_000)
+        val admin = FakeActor(setOf(Permissions.MAINTENANCE))
+        core.commands.maintenance(admin, listOf("status"))
+        assertTrue(admin.messages.single().contains("1m"))
+    }
+
+    @Test
+    fun `broadcast requires its own permission and reaches online players`() {
+        val core = core()
+        val listener = FakePlayer("Listener")
+        platform.players += listener
+
+        val nobody = FakeActor()
+        core.commands.broadcast(nobody, listOf("hi"))
+        assertTrue(nobody.messages.single().contains("permission"))
+        assertTrue(listener.received.isEmpty())
+
+        val admin = FakeActor(setOf(Permissions.BROADCAST))
+        core.commands.broadcast(admin, listOf("Hello", "everyone"))
+        assertTrue(listener.received.single().contains("Hello everyone"))
+    }
+
+    @Test
+    fun `canBypass fails closed if a permission check throws unexpectedly`() {
+        val core = core()
+        val broken = object : PlatformPlayer {
+            override val uniqueId: UUID = UUID.randomUUID()
+            override val name = "Broken"
+            override fun hasPermission(permission: String): Boolean = error("boom")
+            override fun disconnect(message: String) = Unit
+            override fun sendMessage(message: String) = Unit
+            override fun redirectTo(serverName: String) = false
+        }
+        assertFalse(core.maintenance.canBypass(broken))
+    }
+
+    @Test
+    fun `favicon cache does not throw when the path is a directory instead of a file`() {
+        Files.createDirectories(folder.resolve("icon.png"))
+        val cache = FaviconCache(folder) { }
+        assertNull(cache.bytes("icon.png"))
+    }
+
+    @Test
+    fun `config migrator stamps a fresh config with the current version`() {
+        val file = folder.resolve("config.yml")
+        Files.writeString(file, "language: en\n")
+        ConfigMigrator.migrateInPlace(file)
+        assertTrue(Files.readString(file).contains("config-version: ${ConfigMigrator.CURRENT_VERSION}"))
+        assertTrue(Files.readString(file).contains("language: en"), "existing settings must survive the migration")
+    }
+
+    @Test
+    fun `config migrator leaves an already-current file untouched`() {
+        val file = folder.resolve("config.yml")
+        val content = "config-version: ${ConfigMigrator.CURRENT_VERSION}\nlanguage: en\n"
+        Files.writeString(file, content)
+        ConfigMigrator.migrateInPlace(file)
+        assertEquals(content, Files.readString(file))
+    }
+
+    @Test
+    fun `config migrator does nothing if the file does not exist yet`() {
+        val file = folder.resolve("does-not-exist.yml")
+        ConfigMigrator.migrateInPlace(file)
+        assertFalse(Files.exists(file))
+    }
+
+    @Test
+    fun `config migrator move, remove and transform helpers work on nested paths`() {
+        val root: MutableMap<String, Any?> = linkedMapOf(
+            "motd" to linkedMapOf<String, Any?>("old-name" to 5, "drop-me" to "x"),
+        )
+        with(ConfigMigrator) {
+            root.moveValue("motd.old-name", "motd.new-name")
+            root.removeValue("motd.drop-me")
+            root.transformValue("motd.new-name") { (it as Int) * 2 }
+        }
+        @Suppress("UNCHECKED_CAST")
+        val motd = root["motd"] as Map<String, Any?>
+        assertEquals(10, motd["new-name"])
+        assertFalse(motd.containsKey("old-name"))
+        assertFalse(motd.containsKey("drop-me"))
+    }
+
+    @Test
+    fun `a broken config still fails reload cleanly even with the migrator in front of it`() {
+        val core = core()
+        Files.writeString(folder.resolve("config.yml"), "motd: [unclosed")
+        assertFalse(core.reload())
+        assertTrue(core.config.mapList("motd.entries").isNotEmpty())
+    }
+
+    @Test
+    fun `motd preview command shows the active entry, or says nothing is active`() {
+        Files.writeString(folder.resolve("config.yml"), "motd:\n  entries:\n    - line1: 'Hello world'\n")
+        val core = core()
+        val actor = FakeActor()
+        core.commands.proxyTools(actor, listOf("motd"))
+        assertTrue(actor.messages.single().contains("Hello world"))
+
+        Files.writeString(folder.resolve("config.yml"), "motd:\n  enabled: false\n")
+        core.reload()
+        actor.messages.clear()
+        core.commands.proxyTools(actor, listOf("motd"))
+        assertFalse(actor.messages.single().contains("Hello world"))
+    }
+
+    @Test
+    fun `scheduled maintenance starts automatically and runs for the given duration`() {
+        val core = core()
+        val admin = FakeActor(setOf(Permissions.MAINTENANCE))
+        core.commands.maintenance(admin, listOf("schedule", "10m", "5m"))
+        assertTrue(admin.messages.last().contains("10m"))
+        assertFalse(core.maintenance.enabled)
+
+        platform.advance(10 * 60_000 - 1)
+        assertFalse(core.maintenance.enabled)
+        platform.advance(1)
+        assertTrue(core.maintenance.enabled, "should have started automatically")
+
+        platform.advance(5 * 60_000 - 1)
+        assertTrue(core.maintenance.enabled)
+        platform.advance(1)
+        assertFalse(core.maintenance.enabled, "should have ended automatically after its own duration")
+    }
+
+    @Test
+    fun `scheduling refuses a second window and refuses while already active`() {
+        val core = core()
+        assertEquals(ScheduleResult.Scheduled, core.maintenance.scheduleStart(60_000, 60_000))
+        assertEquals(ScheduleResult.AlreadyScheduled, core.maintenance.scheduleStart(30_000, 30_000))
+
+        assertTrue(core.maintenance.cancelSchedule())
+        assertFalse(core.maintenance.cancelSchedule(), "cancelling twice reports nothing was pending")
+
+        core.maintenance.setEnabled(true)
+        assertEquals(ScheduleResult.AlreadyActive, core.maintenance.scheduleStart(60_000, 60_000))
+    }
+
+    @Test
+    fun `cancelling a schedule prevents it from starting`() {
+        val core = core()
+        core.maintenance.scheduleStart(60_000, 60_000)
+        assertTrue(core.maintenance.cancelSchedule())
+        platform.advance(120_000)
+        assertFalse(core.maintenance.enabled)
+    }
+
+    @Test
+    fun `a pending schedule survives a restart`() {
+        core().maintenance.scheduleStart(60_000, 30_000)
+        val restarted = core()
+        assertFalse(restarted.maintenance.enabled)
+        platform.advance(60_000)
+        assertTrue(restarted.maintenance.enabled)
+    }
+
+    @Test
+    fun `status reflects a pending schedule`() {
+        val core = core()
+        val admin = FakeActor(setOf(Permissions.MAINTENANCE))
+        core.maintenance.scheduleStart(60_000, 30_000)
+        core.commands.maintenance(admin, listOf("status"))
+        assertTrue(admin.messages.single().contains("1m"))
+    }
+
+    @Test
+    fun `redirect-server sends players to a backend instead of kicking them, by default kicking still applies`() {
+        val core = core()
+        val redirected = FakePlayer("Redirected")
+        platform.players += redirected
+
+        core.maintenance.setEnabled(true)
+        assertNotNull(redirected.kickedWith)
+        assertNull(redirected.redirectedTo)
+        core.maintenance.setEnabled(false)
+        redirected.kickedWith = null
+
+        Files.writeString(folder.resolve("config.yml"), "maintenance:\n  redirect-server: lobby\n")
+        val reloaded = run { core.reload(); core }
+        reloaded.maintenance.setEnabled(true)
+        assertEquals("lobby", redirected.redirectedTo)
+        assertNull(redirected.kickedWith)
+        assertTrue(redirected.received.isNotEmpty(), "should be told why they were moved")
+    }
+
+    @Test
+    fun `redirect falls back to kicking if the configured server does not exist`() {
+        Files.writeString(folder.resolve("config.yml"), "maintenance:\n  redirect-server: does-not-exist\n")
+        val core = core()
+        val player = FakePlayer("Solo")
+        platform.players += player
+
+        core.maintenance.setEnabled(true)
+        assertNotNull(player.kickedWith)
+        assertNull(player.redirectedTo)
+    }
+
+    @Test
+    fun `dynamic max-players tracks the live online count, not the cached template`() {
+        Files.writeString(
+            folder.resolve("config.yml"),
+            "motd:\n  entries:\n    - line1: 'x'\n  max-players: dynamic\n  max-players-headroom: 3\n",
+        )
+        val core = core()
+        assertEquals(8, core.motd.build(5, 100)!!.maxPlayers)
+        assertEquals(13, core.motd.build(10, 100)!!.maxPlayers, "must update every ping, not just once per interval")
+    }
+
+    @Test
+    fun `fixed and unset max-players still work alongside dynamic`() {
+        Files.writeString(folder.resolve("config.yml"), "motd:\n  entries:\n    - line1: 'x'\n  max-players: 50\n")
+        assertEquals(50, core().motd.build(5, 100)!!.maxPlayers)
+
+        Files.writeString(folder.resolve("config.yml"), "motd:\n  entries:\n    - line1: 'x'\n  max-players: -1\n")
+        assertNull(core().motd.build(5, 100)!!.maxPlayers)
+    }
+
+    @Test
+    fun `starting maintenance manually cancels a pending schedule instead of leaving it dangling`() {
+        val core = core()
+        core.maintenance.scheduleStart(60_000, 30_000)
+        core.maintenance.setEnabled(true)
+        assertTrue(core.maintenance.describeSchedule().contains("no window"), "the superseded schedule must not linger in status")
+
+        platform.advance(120_000)
+        assertTrue(core.maintenance.enabled, "should still be indefinitely on, unaffected by the old schedule")
+    }
+
+    @Test
+    fun `starting maintenance with a duration cancels a pending schedule too`() {
+        val core = core()
+        core.maintenance.scheduleStart(60_000, 30_000)
+        core.commands.maintenance(FakeActor(setOf(Permissions.MAINTENANCE)), listOf("on", "5m"))
+
+        platform.advance(60_000)
+        assertTrue(core.maintenance.enabled, "manual timer must still be running")
+        platform.advance(4 * 60_000)
+        assertFalse(core.maintenance.enabled)
+    }
+
+    @Test
+    fun `a schedule can be set again after maintenance that superseded it ends`() {
+        val core = core()
+        core.maintenance.scheduleStart(60_000, 30_000)
+        core.maintenance.setEnabled(true)
+        core.maintenance.setEnabled(false)
+        assertEquals(ScheduleResult.Scheduled, core.maintenance.scheduleStart(10_000, 10_000))
+    }
+
+    @Test
+    fun `a custom language file is used and falls back to english for missing keys`() {
+        Files.createDirectories(folder.resolve("lang"))
+        Files.writeString(folder.resolve("lang/fr.yml"), "prefix: \"\"\nmessages:\n  reloaded: \"rechargé\"\n")
+        Files.writeString(folder.resolve("config.yml"), "language: fr\n")
+        val core = core()
+        assertEquals("fr", core.language)
+        assertTrue(core.message("reloaded").contains("rechargé"))
+        assertTrue(core.message("already-on").contains("already"))
+    }
+
+    @Test
+    fun `adding an existing uuid keeps the stored name`() {
+        val core = core()
+        val uuid = UUID.randomUUID()
+        core.store.addResolved(uuid, "Alice")
+        assertEquals(WhitelistAddResult.ALREADY_PRESENT, core.store.addResolved(uuid, "?"))
+        assertEquals("Alice", core.store.entries().single().name)
+    }
+
+    @Test
+    fun `config migrator runs every step from the file's version and keeps unrelated values`() {
+        val file = folder.resolve("config.yml")
+        Files.writeString(file, "config-version: 1\nold: 5\nkeep: x\n")
+        val steps = listOf<MigrationStep>(
+            { root -> with(ConfigMigrator) { root.moveValue("old", "new") } },
+            { root -> with(ConfigMigrator) { root.transformValue("new") { (it as Int) * 2 } } },
+        )
+        ConfigMigrator.migrateInPlace(file, steps)
+        val text = Files.readString(file)
+        assertTrue(text.contains("config-version: 3"))
+        assertTrue(text.contains("new: 10"))
+        assertTrue(text.contains("keep: x"))
+        assertFalse(text.contains("old:"))
+    }
+
+    @Test
+    fun `stamping a config without steps keeps its comments`() {
+        val file = folder.resolve("config.yml")
+        Files.writeString(file, "# my note\nlanguage: de\n")
+        ConfigMigrator.migrateInPlace(file)
+        val text = Files.readString(file)
+        assertTrue(text.contains("# my note"))
+        assertTrue(text.contains("config-version: ${ConfigMigrator.CURRENT_VERSION}"))
     }
 }

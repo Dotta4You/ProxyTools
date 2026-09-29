@@ -5,19 +5,41 @@ prefix: "&8[&bProxyTools&8] &7"
 messages:
   no-permission: "%prefix%&cYou don't have permission to do that."
 
-  # shown when disconnected / blocked from joining during maintenance
+  # shown when disconnected / blocked from joining during maintenance (no redirect-server set)
   maintenance-kick:
     - "&c&lMaintenance"
     - ""
     - "&7The network is currently under maintenance."
     - "&7Please try again later."
 
+  # shown when moved to maintenance.redirect-server instead of being kicked
+  maintenance-redirect: "%prefix%&eYou were moved here because the network is in maintenance mode."
+
   enabled: "%prefix%Maintenance mode is now &aenabled&7 (&f%count%&7 player(s) kicked)."
+  enabled-timed: "%prefix%Maintenance mode is now &aenabled&7 for &f%duration%&7 (&f%count%&7 player(s) kicked)."
   disabled: "%prefix%Maintenance mode is now &cdisabled&7."
   already-on: "%prefix%Maintenance mode is already &aenabled&7."
   already-off: "%prefix%Maintenance mode is already &cdisabled&7."
-  status-on: "%prefix%Maintenance mode is currently &aenabled&7."
-  status-off: "%prefix%Maintenance mode is currently &cdisabled&7."
+  status-on: "%prefix%Maintenance mode is currently &aenabled&7 (%duration%)."
+  status-off: "%prefix%Maintenance mode is currently &cdisabled&7 (%schedule%)."
+  duration-remaining: "ends in %time%"
+  duration-none: "no timer set"
+  invalid-duration: "%prefix%&cInvalid duration '%input%'. Use e.g. 1h30m, 45s."
+  timer-already-running: "%prefix%&cA timer is already running (%duration%). Turn maintenance off first if you want to change it."
+  timer-warning: "%prefix%&eMaintenance ends in &f%time%&e."
+  timer-ended: "%prefix%Maintenance mode has ended automatically."
+
+  # /maintenance schedule <delay> <duration> — starts maintenance automatically later on
+  schedule-none: "no window scheduled"
+  schedule-pending: "starts in %delay%, running for %duration%"
+  schedule-set: "%prefix%Maintenance scheduled to start in &f%delay%&7 and run for &f%duration%&7."
+  schedule-already-set: "%prefix%&cA maintenance window is already scheduled (%schedule%). Use &f/maintenance schedule cancel&c first."
+  schedule-cancelled: "%prefix%Scheduled maintenance was cancelled."
+  schedule-not-set: "%prefix%&cNo maintenance is currently scheduled."
+  schedule-warning: "%prefix%&eMaintenance starts in &f%time%&e."
+
+  motd-preview: "%prefix%&7Current MOTD:\n%text%"
+  motd-preview-empty: "%prefix%No custom MOTD is currently active."
 
   whitelist-added: "%prefix%&f%player% &7was added to the maintenance whitelist."
   whitelist-added-pending: "%prefix%&f%player% &7is not online right now, so their account could not be identified yet. They were added by name and will be fully whitelisted (by UUID) the next time they join."
@@ -28,9 +50,13 @@ messages:
   whitelist-list: "%prefix%Maintenance whitelist (&f%count%&7): &f%players%"
   whitelist-pending-suffix: " &8(pending)" # appended in whitelist-list for unresolved entries
 
-  usage-maintenance: "%prefix%Usage: &f/maintenance <on|off|toggle|status>"
+  usage-maintenance: "%prefix%Usage: &f/maintenance <on [duration]|off|schedule|status>"
   usage-whitelist: "%prefix%Usage: &f/maintenance whitelist <add|remove|list> [player]"
-  usage-proxytools: "%prefix%Usage: &f/proxytools <info|reload>"
+  usage-schedule: "%prefix%Usage: &f/maintenance schedule <delay> <duration>|cancel"
+  usage-proxytools: "%prefix%Usage: &f/proxytools <info|motd|reload>"
+  usage-broadcast: "%prefix%Usage: &f/broadcast <message>"
+
+  broadcast: "%prefix%&e%message%"
 
   info: "%prefix%ProxyTools &fv%version% &7on &f%platform%"
   reloaded: "%prefix%Configuration reloaded."

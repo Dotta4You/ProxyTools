@@ -7,7 +7,6 @@ object Text {
     private val GRADIENT = Regex("<gradient:(#[0-9a-fA-F]{6}):(#[0-9a-fA-F]{6})>(.*?)</gradient>")
     private val RAINBOW = Regex("<rainbow>(.*?)</rainbow>")
 
-    /** Converts `&`-codes, `&#RRGGBB` hex, `<gradient:#..:#..>` and `<rainbow>` into §-formatting. */
     fun colorize(input: String): String {
         val expanded = applyRainbow(applyGradients(input))
         val withHex = HEX.replace(expanded) { match ->
@@ -19,7 +18,6 @@ object Text {
         return CODE.replace(withHex) { "$SECTION${it.groupValues[1]}" }
     }
 
-    /** Replaces `%key%` with its value for every pair. */
     fun replace(input: String, vararg placeholders: Pair<String, String>): String {
         var result = input
         for ((key, value) in placeholders) result = result.replace("%$key%", value)

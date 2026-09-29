@@ -5,19 +5,41 @@ prefix: "&8[&bProxyTools&8] &7"
 messages:
   no-permission: "%prefix%&cDafür hast du keine Berechtigung."
 
-  # wird beim Trennen / Join-Sperre während der Wartung angezeigt
+  # wird beim Trennen / Join-Sperre während der Wartung angezeigt (wenn kein redirect-server gesetzt ist)
   maintenance-kick:
     - "&c&lWartungsmodus"
     - ""
     - "&7Das Netzwerk befindet sich gerade in Wartung."
     - "&7Bitte versuche es später erneut."
 
+  # wird angezeigt, wenn stattdessen zu maintenance.redirect-server verschoben wird
+  maintenance-redirect: "%prefix%&eDu wurdest hierher verschoben, da sich das Netzwerk im Wartungsmodus befindet."
+
   enabled: "%prefix%Wartungsmodus ist jetzt &aaktiviert&7 (&f%count%&7 Spieler gekickt)."
+  enabled-timed: "%prefix%Wartungsmodus ist jetzt &aaktiviert&7 für &f%duration%&7 (&f%count%&7 Spieler gekickt)."
   disabled: "%prefix%Wartungsmodus ist jetzt &cdeaktiviert&7."
   already-on: "%prefix%Wartungsmodus ist bereits &aaktiviert&7."
   already-off: "%prefix%Wartungsmodus ist bereits &cdeaktiviert&7."
-  status-on: "%prefix%Wartungsmodus ist aktuell &aaktiviert&7."
-  status-off: "%prefix%Wartungsmodus ist aktuell &cdeaktiviert&7."
+  status-on: "%prefix%Wartungsmodus ist aktuell &aaktiviert&7 (%duration%)."
+  status-off: "%prefix%Wartungsmodus ist aktuell &cdeaktiviert&7 (%schedule%)."
+  duration-remaining: "endet in %time%"
+  duration-none: "kein Timer gesetzt"
+  invalid-duration: "%prefix%&cUngültige Dauer '%input%'. Beispiel: 1h30m, 45s."
+  timer-already-running: "%prefix%&cEs läuft bereits ein Timer (%duration%). Schalte die Wartung erst aus, um ihn zu ändern."
+  timer-warning: "%prefix%&eWartungsmodus endet in &f%time%&e."
+  timer-ended: "%prefix%Wartungsmodus wurde automatisch beendet."
+
+  # /maintenance schedule <Verzögerung> <Dauer> — startet die Wartung automatisch später
+  schedule-none: "kein Fenster geplant"
+  schedule-pending: "startet in %delay%, läuft für %duration%"
+  schedule-set: "%prefix%Wartung geplant: Start in &f%delay%&7, Dauer &f%duration%&7."
+  schedule-already-set: "%prefix%&cEs ist bereits ein Wartungsfenster geplant (%schedule%). Nutze erst &f/maintenance schedule cancel&c."
+  schedule-cancelled: "%prefix%Geplante Wartung wurde abgebrochen."
+  schedule-not-set: "%prefix%&cAktuell ist keine Wartung geplant."
+  schedule-warning: "%prefix%&eWartungsmodus startet in &f%time%&e."
+
+  motd-preview: "%prefix%&7Aktuelle MOTD:\n%text%"
+  motd-preview-empty: "%prefix%Aktuell ist keine eigene MOTD aktiv."
 
   whitelist-added: "%prefix%&f%player% &7wurde zur Wartungs-Whitelist hinzugefügt."
   whitelist-added-pending: "%prefix%&f%player% &7ist gerade nicht online und konnte daher nicht eindeutig zugeordnet werden. Der Name wurde vorgemerkt und wird beim nächsten Join automatisch anhand der UUID vervollständigt."
@@ -28,9 +50,13 @@ messages:
   whitelist-list: "%prefix%Wartungs-Whitelist (&f%count%&7): &f%players%"
   whitelist-pending-suffix: " &8(ausstehend)" # Anhang in whitelist-list für unbestätigte Einträge
 
-  usage-maintenance: "%prefix%Verwendung: &f/maintenance <on|off|toggle|status>"
+  usage-maintenance: "%prefix%Verwendung: &f/maintenance <on [Dauer]|off|schedule|status>"
   usage-whitelist: "%prefix%Verwendung: &f/maintenance whitelist <add|remove|list> [Spieler]"
-  usage-proxytools: "%prefix%Verwendung: &f/proxytools <info|reload>"
+  usage-schedule: "%prefix%Verwendung: &f/maintenance schedule <Verzögerung> <Dauer>|cancel"
+  usage-proxytools: "%prefix%Verwendung: &f/proxytools <info|motd|reload>"
+  usage-broadcast: "%prefix%Verwendung: &f/broadcast <Nachricht>"
+
+  broadcast: "%prefix%&e%message%"
 
   info: "%prefix%ProxyTools &fv%version% &7auf &f%platform%"
   reloaded: "%prefix%Konfiguration neu geladen."
