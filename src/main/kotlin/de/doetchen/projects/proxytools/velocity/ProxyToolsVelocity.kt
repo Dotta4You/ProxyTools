@@ -6,6 +6,7 @@ import com.velocitypowered.api.command.SimpleCommand
 import com.velocitypowered.api.event.ResultedEvent
 import com.velocitypowered.api.event.Subscribe
 import com.velocitypowered.api.event.connection.LoginEvent
+import com.velocitypowered.api.event.player.ServerPostConnectEvent
 import com.velocitypowered.api.event.player.ServerPreConnectEvent
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent
 import com.velocitypowered.api.event.proxy.ProxyPingEvent
@@ -55,13 +56,15 @@ class ProxyToolsVelocity @Inject constructor(
             server.eventManager.register(this, VelocityListener(core, server))
             register("maintenance", core.commands::maintenance, core.commands::suggestMaintenance)
             register("proxytools", core.commands::proxyTools, core.commands::suggestProxyTools, "pt")
-            register("broadcast", core.commands::broadcast, core.commands::suggestBroadcast, "bc")
+            register("broadcast", core.commands::broadcast, core.commands::noSuggestions, "bc")
+            register("teamchat", core.commands::teamChat, core.commands::noSuggestions, "tc")
             val metrics = metricsFactory.make(this, BSTATS_PLUGIN_ID)
             core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
         } catch (e: Exception) {
             logger.error("ProxyTools failed to start, disabling", e)
             server.eventManager.unregisterListeners(this)
-            listOf("maintenance", "proxytools", "broadcast").forEach { server.commandManager.unregister(it) }
+            listOf("maintenance", "proxytools", "pt", "broadcast", "bc", "teamchat", "tc")
+                .forEach { server.commandManager.unregister(it) }
         }
     }
 
@@ -93,6 +96,8 @@ private class VelocityPlatform(
     override val onlinePlayers get() = server.allPlayers.map { VelocityPlayer(it, server) }
     override val configuredMaxPlayers: Int get() = server.configuration.showMaxPlayers
 
+    override fun hasServer(name: String) = server.getServer(name).isPresent
+
     override fun info(message: String) = logger.info(message)
     override fun warn(message: String) = logger.warn(message)
     override fun now(): Long = System.currentTimeMillis()
@@ -119,6 +124,8 @@ private class VelocityPlayer(private val player: Player, private val server: Pro
 }
 
 private class VelocityActor(private val source: CommandSource) : CommandActor {
+    override val name: String get() = (source as? Player)?.username ?: "Console"
+    override val serverName: String? get() = (source as? Player)?.currentServer?.orElse(null)?.serverInfo?.name
     override fun hasPermission(permission: String) = source.hasPermission(permission)
     override fun sendMessage(message: String) = source.sendMessage(component(message))
 }
@@ -159,10 +166,14 @@ class VelocityListener(private val core: ProxyToolsCore, private val server: Pro
 
     @Subscribe
     fun onLogin(event: LoginEvent) {
-        if (!core.maintenance.enabled || core.maintenance.redirectTarget() != null) return
-        if (!core.maintenance.canBypass(VelocityPlayer(event.player, server))) {
-            event.result = ResultedEvent.ComponentResult.denied(component(core.maintenance.kickMessage()))
+        core.loginDenial(VelocityPlayer(event.player, server))?.let {
+            event.result = ResultedEvent.ComponentResult.denied(component(it))
         }
+    }
+
+    @Subscribe
+    fun onServerPostConnect(event: ServerPostConnectEvent) {
+        if (event.previousServer == null) core.maintenance.notifyBypass(VelocityPlayer(event.player, server))
     }
 
     @Subscribe

@@ -53,7 +53,11 @@ class MotdService(private val core: ProxyToolsCore) {
             is MaxPlayersMode.Fixed -> mode.value
             is MaxPlayersMode.Dynamic -> online + mode.headroom
         }
-        val placeholders = arrayOf("online" to online.toString(), "max" to (maxOverride ?: proxyMax).toString())
+        val placeholders = arrayOf(
+            "online" to online.toString(),
+            "max" to (maxOverride ?: proxyMax).toString(),
+            "reason" to (core.store.maintenanceReason?.let(Text::colorize) ?: ""),
+        )
         val description = template.description?.let { Text.replace(it, *placeholders) }
         val hover = template.hoverLines?.map { Text.replace(it, *placeholders) }
         val favicon = (if (maintenance) core.favicons.bytes("icon-maintenance.png") else null) ?: core.favicons.bytes("icon.png")
@@ -76,7 +80,7 @@ class MotdService(private val core: ProxyToolsCore) {
                 null
             },
             versionName = if (maintenance) config.string("maintenance.version-text").takeIf { it.isNotBlank() }?.let(Text::colorize) else null,
-            maxPlayersMode = if (enabled) maxPlayersMode(config, base) else MaxPlayersMode.Unset,
+            maxPlayersMode = if (enabled) maxPlayersMode(config, base) else slotsLimit(),
         )
         cached = Cached(config, base, bucket, template)
         return template
@@ -87,8 +91,11 @@ class MotdService(private val core: ProxyToolsCore) {
             return MaxPlayersMode.Dynamic(config.int("$base.max-players-headroom", 1).coerceAtLeast(0))
         }
         val fixed = config.int("$base.max-players", -1)
-        return if (fixed >= 0) MaxPlayersMode.Fixed(fixed) else MaxPlayersMode.Unset
+        return if (fixed >= 0) MaxPlayersMode.Fixed(fixed) else slotsLimit()
     }
+
+    private fun slotsLimit(): MaxPlayersMode =
+        if (core.slots.enabled) MaxPlayersMode.Fixed(core.slots.limit()) else MaxPlayersMode.Unset
 
     private fun pickEntry(config: YamlConfig, base: String, bucket: Long): String? {
         val entries = config.mapList("$base.entries")

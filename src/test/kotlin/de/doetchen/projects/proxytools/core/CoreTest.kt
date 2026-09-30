@@ -35,7 +35,11 @@ private class FakePlayer(
     }
 }
 
-private class FakeActor(private val permissions: Set<String> = emptySet()) : CommandActor {
+private class FakeActor(
+    private val permissions: Set<String> = emptySet(),
+    override val name: String = "Tester",
+    override val serverName: String? = null,
+) : CommandActor {
     val messages = mutableListOf<String>()
 
     override fun hasPermission(permission: String) = permission in permissions
@@ -52,6 +56,8 @@ private class FakePlatform(override val dataFolder: Path) : Platform {
     override val configuredMaxPlayers = 100
     val players = mutableListOf<FakePlayer>()
     val loggedInfo = mutableListOf<String>()
+    val warnings = mutableListOf<String>()
+    val servers = mutableSetOf("lobby")
     override val onlinePlayers: Collection<PlatformPlayer> get() = players.toList()
 
     var clock = 0L
@@ -61,7 +67,11 @@ private class FakePlatform(override val dataFolder: Path) : Platform {
     override fun info(message: String) {
         loggedInfo += message
     }
-    override fun warn(message: String) = println("WARN: $message")
+    override fun warn(message: String) {
+        warnings += message
+        println("WARN: $message")
+    }
+    override fun hasServer(name: String) = name in servers
     override fun now(): Long = clock
 
     override fun runLater(delayMillis: Long, task: () -> Unit): ScheduledTask {
@@ -453,9 +463,9 @@ class CoreTest {
     fun `invalid duration is rejected without changing state`() {
         val core = core()
         val admin = FakeActor(setOf(Permissions.MAINTENANCE))
-        core.commands.maintenance(admin, listOf("on", "notaduration"))
+        core.commands.maintenance(admin, listOf("on", "10x"))
         assertFalse(core.maintenance.enabled)
-        assertTrue(admin.messages.last().contains("notaduration"))
+        assertTrue(admin.messages.last().contains("10x"))
     }
 
     @Test
@@ -811,6 +821,230 @@ class CoreTest {
         core.maintenance.setEnabled(true)
         core.maintenance.setEnabled(false)
         assertEquals(ScheduleResult.Scheduled, core.maintenance.scheduleStart(10_000, 10_000))
+    }
+
+    private fun admin() = FakeActor(setOf(Permissions.MAINTENANCE))
+
+    @Test
+    fun `maintenance reason is shown in the kick screen and status, and cleared when turned off`() {
+        val core = core()
+        val player = FakePlayer("Normal")
+        platform.players += player
+        val actor = admin()
+
+        core.commands.maintenance(actor, listOf("on", "Database", "update"))
+        assertTrue(player.kickedWith!!.contains("Database update"))
+        core.commands.maintenance(actor, listOf("status"))
+        assertTrue(actor.messages.last().contains("Database update"))
+
+        core.commands.maintenance(actor, listOf("off"))
+        core.commands.maintenance(actor, listOf("on"))
+        assertNull(core.store.maintenanceReason)
+        assertFalse(core.maintenance.kickMessage().contains("Reason"))
+        assertFalse(core.maintenance.reasonSuffix().isNotEmpty())
+    }
+
+    @Test
+    fun `an argument starting with a digit is the duration, anything else the reason`() {
+        val core = core()
+        val actor = admin()
+
+        core.commands.maintenance(actor, listOf("on", "1x", "oops"))
+        assertFalse(core.maintenance.enabled, "an invalid duration must not enable maintenance")
+
+        core.commands.maintenance(actor, listOf("on", "10m", "Server", "move"))
+        assertEquals("Server move", core.store.maintenanceReason)
+        assertNotNull(core.store.maintenanceUntil)
+    }
+
+    @Test
+    fun `the reason survives a restart and is used by a scheduled window`() {
+        val core = core()
+        core.maintenance.scheduleStart(60_000, 30_000, "Backup")
+        platform.advance(60_000)
+        assertEquals("Backup", core.store.maintenanceReason)
+        assertEquals("Backup", ProxyToolsCore(platform).store.maintenanceReason)
+    }
+
+    @Test
+    fun `motd placeholder reason is filled during maintenance`() {
+        Files.writeString(
+            folder.resolve("config.yml"),
+            "maintenance:\n  motd:\n    entries:\n      - line1: 'Closed: %reason%'\n",
+        )
+        val core = core()
+        core.maintenance.setEnabled(true, "Upgrade")
+        assertEquals("Closed: Upgrade", core.motd.build(0, 10)!!.description)
+    }
+
+    @Test
+    fun `bypass players get a chat notice while maintenance is on`() {
+        val core = core()
+        val staff = FakePlayer("Staff", setOf(Permissions.MAINTENANCE_BYPASS))
+        val normal = FakePlayer("Normal")
+        core.maintenance.notifyBypass(staff)
+        assertTrue(staff.received.isEmpty())
+
+        core.maintenance.setEnabled(true, "Upgrade")
+        core.maintenance.notifyBypass(staff)
+        core.maintenance.notifyBypass(normal)
+        assertTrue(staff.received.single().contains("Upgrade"))
+        assertTrue(normal.received.isEmpty())
+    }
+
+    @Test
+    fun `login denial covers maintenance only when no redirect server is set`() {
+        val core = core()
+        val normal = FakePlayer("Normal")
+        assertNull(core.loginDenial(normal))
+        core.maintenance.setEnabled(true)
+        assertNotNull(core.loginDenial(normal))
+
+        Files.writeString(folder.resolve("config.yml"), "maintenance:\n  redirect-server: lobby\n")
+        core.reload()
+        assertNull(core.loginDenial(normal))
+    }
+
+    private fun slotsCore(): ProxyToolsCore {
+        Files.writeString(folder.resolve("config.yml"), "slots:\n  enabled: true\n  max-players: 5\n  reserved: 2\n")
+        return core()
+    }
+
+    @Test
+    fun `slots keep the last places for vips and always let admins in`() {
+        val core = slotsCore()
+        val vip = FakePlayer("Vip", setOf(Permissions.SLOTS_RESERVED))
+        val admin = FakePlayer("Admin", setOf(Permissions.SLOTS_BYPASS))
+
+        repeat(3) { i ->
+            val player = FakePlayer("P$i")
+            assertNull(core.loginDenial(player))
+            platform.players += player
+        }
+        assertNotNull(core.loginDenial(FakePlayer("Late")), "the two reserved slots are off limits for normal players")
+        assertNull(core.loginDenial(vip))
+        platform.players += vip
+        assertNull(core.loginDenial(FakePlayer("Vip2", setOf(Permissions.SLOTS_RESERVED))))
+        platform.players += FakePlayer("Vip2", setOf(Permissions.SLOTS_RESERVED))
+
+        assertNotNull(core.loginDenial(FakePlayer("Vip3", setOf(Permissions.SLOTS_RESERVED))), "full for everyone but admins")
+        assertNull(core.loginDenial(admin))
+    }
+
+    @Test
+    fun `a player already counted as online is not counted twice`() {
+        val core = slotsCore()
+        repeat(2) { platform.players += FakePlayer("P$it") }
+        val joining = FakePlayer("Joining")
+        platform.players += joining
+        assertNull(core.loginDenial(joining))
+    }
+
+    @Test
+    fun `slots are ignored when disabled and the server list shows the limit when enabled`() {
+        val disabled = core()
+        repeat(200) { platform.players += FakePlayer("P$it") }
+        assertNull(disabled.loginDenial(FakePlayer("Late")))
+
+        val enabled = slotsCore().also { it.reload() }
+        assertEquals(5, enabled.motd.build(0, 100)!!.maxPlayers)
+    }
+
+    @Test
+    fun `an unknown redirect server is reported on start and reload`() {
+        Files.writeString(folder.resolve("config.yml"), "maintenance:\n  redirect-server: nowhere\n")
+        val core = core()
+        assertTrue(platform.warnings.any { it.contains("nowhere") })
+
+        platform.warnings.clear()
+        Files.writeString(folder.resolve("config.yml"), "maintenance:\n  redirect-server: lobby\n")
+        core.reload()
+        assertTrue(platform.warnings.none { it.contains("redirect-server") })
+    }
+
+    private fun announcementsCore(mode: String = "sequential", interval: Int = 10): ProxyToolsCore {
+        Files.writeString(
+            folder.resolve("config.yml"),
+            "announcements:\n  enabled: true\n  mode: $mode\n  interval-seconds: $interval\n  prefix: '[I] '\n" +
+                "  messages:\n    - 'one'\n    - 'two'\n    - - 'three a'\n      - 'three b'\n",
+        )
+        return core()
+    }
+
+    @Test
+    fun `announcements rotate in order, prefix every line and skip empty networks`() {
+        announcementsCore()
+        platform.advance(10_000)
+        val player = FakePlayer("Online")
+        platform.players += player
+        platform.advance(10_000)
+        platform.advance(10_000)
+        platform.advance(10_000)
+        assertEquals(listOf("[I] one", "[I] two", "[I] three a\n[I] three b"), player.received)
+    }
+
+    @Test
+    fun `random announcements never repeat the previous one directly`() {
+        announcementsCore("random")
+        val player = FakePlayer("Online")
+        platform.players += player
+        repeat(40) { platform.advance(10_000) }
+        assertEquals(40, player.received.size)
+        assertTrue(player.received.zipWithNext().all { (a, b) -> a != b })
+    }
+
+    @Test
+    fun `announcements are off by default and a reload restarts instead of duplicating them`() {
+        val player = FakePlayer("Online")
+        platform.players += player
+        core()
+        platform.advance(600_000)
+        assertTrue(player.received.isEmpty())
+
+        val core = announcementsCore()
+        repeat(3) { core.reload() }
+        platform.advance(10_000)
+        assertEquals(1, player.received.size)
+    }
+
+    @Test
+    fun `team chat reaches only team members, includes the server name and needs the permission`() {
+        val core = core()
+        val staff = FakePlayer("Staff", setOf(Permissions.TEAMCHAT))
+        val normal = FakePlayer("Normal")
+        platform.players += listOf(staff, normal)
+
+        val denied = FakeActor(emptySet(), "Normal", "lobby")
+        core.commands.teamChat(denied, listOf("hi"))
+        assertTrue(normal.received.isEmpty())
+        assertTrue(denied.messages.single().contains("permission"))
+
+        val sender = FakeActor(setOf(Permissions.TEAMCHAT), "Staff", "lobby")
+        core.commands.teamChat(sender, listOf("hello", "team"))
+        val message = staff.received.single()
+        assertTrue(message.contains("Staff") && message.contains("lobby") && message.contains("hello team"))
+        assertTrue(normal.received.isEmpty())
+        assertTrue(platform.loggedInfo.any { it.contains("hello team") })
+
+        core.commands.teamChat(sender, emptyList())
+        assertTrue(sender.messages.last().contains("/teamchat"))
+    }
+
+    @Test
+    fun `team chat can be switched off in the config and is on by default`() {
+        val staff = FakePlayer("Staff", setOf(Permissions.TEAMCHAT))
+        platform.players += staff
+        val sender = FakeActor(setOf(Permissions.TEAMCHAT), "Staff", "lobby")
+        val core = core()
+
+        core.commands.teamChat(sender, listOf("on"))
+        assertEquals(1, staff.received.size)
+
+        Files.writeString(folder.resolve("config.yml"), "teamchat:\n  enabled: false\n")
+        core.reload()
+        core.commands.teamChat(sender, listOf("off"))
+        assertEquals(1, staff.received.size)
+        assertTrue(sender.messages.last().contains("disabled"))
     }
 
     @Test

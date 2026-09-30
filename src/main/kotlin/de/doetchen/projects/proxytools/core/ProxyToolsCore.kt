@@ -18,6 +18,8 @@ class ProxyToolsCore(val platform: Platform) {
     val store = MaintenanceStore(platform.dataFolder.resolve("data.yml"), platform::warn)
     val maintenance = MaintenanceService(this)
     val motd = MotdService(this)
+    val slots = SlotService(this)
+    val announcements = AnnouncementService(this)
     val favicons = FaviconCache(platform.dataFolder, platform::warn)
     val commands = CommandHandler(this)
 
@@ -25,6 +27,8 @@ class ProxyToolsCore(val platform: Platform) {
         guarded("Could not read data.yml, starting with maintenance off") { store.load() }
         guarded("Could not resume the maintenance timer") { maintenance.resumeTimerIfNeeded() }
         guarded("Could not resume the scheduled maintenance window") { maintenance.resumeScheduleIfNeeded() }
+        warnAboutMissingRedirectServer()
+        guarded("Could not start the announcements") { announcements.restart() }
         logStartupBanner()
     }
 
@@ -37,6 +41,8 @@ class ProxyToolsCore(val platform: Platform) {
         config = newConfig
         language = newLanguage
         messages = newMessages
+        warnAboutMissingRedirectServer()
+        announcements.restart()
         true
     } catch (e: Exception) {
         platform.warn("Reload failed, keeping the previous configuration: ${e.message}")
@@ -54,9 +60,17 @@ class ProxyToolsCore(val platform: Platform) {
         "maintenance_enabled" to { if (maintenance.enabled) "enabled" else "disabled" },
     )
 
+    fun loginDenial(player: PlatformPlayer): String? = maintenance.loginDenial(player) ?: slots.denial(player)
+
     fun broadcast(formattedMessage: String) {
         platform.onlinePlayers.forEach { it.sendMessage(formattedMessage) }
         platform.info(formattedMessage)
+    }
+
+    fun teamChat(sender: CommandActor, text: String) {
+        val formatted = message("teamchat", "player" to sender.name, "server" to (sender.serverName ?: "-"), "message" to text)
+        platform.onlinePlayers.filter { it.hasPermission(Permissions.TEAMCHAT) }.forEach { it.sendMessage(formatted) }
+        platform.info(formatted)
     }
 
     private object Ansi {
@@ -87,6 +101,13 @@ class ProxyToolsCore(val platform: Platform) {
             platform.info("${Ansi.GRAY}▶ Schedule: ${Ansi.RESET}${maintenance.describeSchedule()}")
         }
         platform.info(rule)
+    }
+
+    private fun warnAboutMissingRedirectServer() {
+        val target = maintenance.redirectTarget() ?: return
+        if (!platform.hasServer(target)) {
+            platform.warn("maintenance.redirect-server '$target' is not a registered server, players will be kicked instead.")
+        }
     }
 
     private fun migrateConfig() = guarded("Could not migrate config.yml, loading it as-is") {

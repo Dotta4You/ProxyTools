@@ -46,3 +46,22 @@ maintenance:
       lines:
         - "&c&lMaintenance"
         - "&7The network is currently closed."
+
+slots: # own player limit, replaces the proxy's (BungeeCord: set player_limit to -1 there)
+  enabled: false
+  max-players: 100
+  reserved: 10 # of these, only for proxytools.slots.reserved; proxytools.slots.bypass always gets in
+
+announcements: # automatic chat messages to everyone online
+  enabled: false
+  mode: sequential # sequential | random
+  interval-seconds: 300
+  prefix: "&8[&6Info&8] &f"
+  messages:
+    - "&eJoin our Discord: &bdiscord.example.com"
+    - "&eVote for the network and get rewards!"
+    - - "&eTwo lines in one message:"
+      - "&7a nested list is shown as several lines"
+
+teamchat: # /teamchat, alias /tc
+  enabled: true

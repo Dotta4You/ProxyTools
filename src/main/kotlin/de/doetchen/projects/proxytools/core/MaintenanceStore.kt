@@ -18,6 +18,10 @@ class MaintenanceStore(private val file: Path, private val onSaveError: (String)
         private set
 
     @Volatile
+    var maintenanceReason: String? = null
+        private set
+
+    @Volatile
     var maintenanceUntil: Long? = null
         private set
 
@@ -27,6 +31,10 @@ class MaintenanceStore(private val file: Path, private val onSaveError: (String)
 
     @Volatile
     var scheduledDuration: Long? = null
+        private set
+
+    @Volatile
+    var scheduledReason: String? = null
         private set
 
     private val resolved = ConcurrentHashMap<UUID, String>()
@@ -40,6 +48,8 @@ class MaintenanceStore(private val file: Path, private val onSaveError: (String)
         maintenanceUntil = (root["maintenance-until"] as? Number)?.toLong()
         scheduledStart = (root["schedule-start"] as? Number)?.toLong()
         scheduledDuration = (root["schedule-duration"] as? Number)?.toLong()
+        maintenanceReason = root["maintenance-reason"] as? String
+        scheduledReason = root["schedule-reason"] as? String
 
         resolved.clear()
         (root["whitelist-resolved"] as? Map<*, *>)?.forEach { (key, value) ->
@@ -49,8 +59,9 @@ class MaintenanceStore(private val file: Path, private val onSaveError: (String)
         (root["whitelist-pending"] as? List<*>)?.forEach { entry -> entry?.toString()?.let { pending[normalize(it)] = it } }
     }
 
-    fun setEnabled(value: Boolean) {
+    fun setEnabled(value: Boolean, reason: String? = null) {
         enabled = value
+        maintenanceReason = reason
         save()
     }
 
@@ -59,9 +70,10 @@ class MaintenanceStore(private val file: Path, private val onSaveError: (String)
         save()
     }
 
-    fun setSchedule(start: Long?, durationMillis: Long?) {
+    fun setSchedule(start: Long?, durationMillis: Long?, reason: String? = null) {
         scheduledStart = start
         scheduledDuration = durationMillis
+        scheduledReason = reason
         save()
     }
 
@@ -119,9 +131,11 @@ class MaintenanceStore(private val file: Path, private val onSaveError: (String)
                 file,
                 linkedMapOf(
                     "maintenance" to enabled,
+                    "maintenance-reason" to maintenanceReason,
                     "maintenance-until" to maintenanceUntil,
                     "schedule-start" to scheduledStart,
                     "schedule-duration" to scheduledDuration,
+                    "schedule-reason" to scheduledReason,
                     "whitelist-resolved" to resolved.entries.associate { it.key.toString() to it.value },
                     "whitelist-pending" to pending.values.sorted(),
                 ),

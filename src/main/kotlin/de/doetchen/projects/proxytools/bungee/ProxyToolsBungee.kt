@@ -17,6 +17,7 @@ import net.md_5.bungee.api.connection.ProxiedPlayer
 import net.md_5.bungee.api.event.PostLoginEvent
 import net.md_5.bungee.api.event.ProxyPingEvent
 import net.md_5.bungee.api.event.ServerConnectEvent
+import net.md_5.bungee.api.event.ServerSwitchEvent
 import net.md_5.bungee.api.plugin.Command
 import net.md_5.bungee.api.plugin.Listener
 import net.md_5.bungee.api.plugin.Plugin
@@ -43,7 +44,8 @@ class ProxyToolsBungee : Plugin() {
             listOf(
                 BungeeCommand("maintenance", core.commands::maintenance, core.commands::suggestMaintenance),
                 BungeeCommand("proxytools", core.commands::proxyTools, core.commands::suggestProxyTools, "pt"),
-                BungeeCommand("broadcast", core.commands::broadcast, core.commands::suggestBroadcast, "bc"),
+                BungeeCommand("broadcast", core.commands::broadcast, core.commands::noSuggestions, "bc"),
+                BungeeCommand("teamchat", core.commands::teamChat, core.commands::noSuggestions, "tc"),
             ).forEach { proxy.pluginManager.registerCommand(this, it) }
             val metrics = Metrics(this, BSTATS_PLUGIN_ID)
             core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
@@ -66,6 +68,8 @@ private class BungeePlatform(private val plugin: Plugin) : Platform {
     override val dataFolder: Path get() = plugin.dataFolder.toPath()
     override val onlinePlayers get() = ProxyServer.getInstance().players.map(::BungeePlayer)
     override val configuredMaxPlayers: Int get() = ProxyServer.getInstance().config.playerLimit
+
+    override fun hasServer(name: String) = ProxyServer.getInstance().getServerInfo(name) != null
 
     override fun info(message: String) = plugin.logger.info(message)
     override fun warn(message: String) = plugin.logger.warning(message)
@@ -94,6 +98,8 @@ private class BungeePlayer(private val player: ProxiedPlayer) : PlatformPlayer {
 }
 
 private class BungeeActor(private val sender: CommandSender) : CommandActor {
+    override val name: String get() = sender.name
+    override val serverName: String? get() = (sender as? ProxiedPlayer)?.server?.info?.name
     override fun hasPermission(permission: String) = sender.hasPermission(permission)
     override fun sendMessage(message: String) = sender.sendMessage(*legacy(message))
 }
@@ -130,9 +136,13 @@ class BungeeListener(private val core: ProxyToolsCore) : Listener {
 
     @EventHandler
     fun onPostLogin(event: PostLoginEvent) {
-        if (!core.maintenance.enabled || core.maintenance.redirectTarget() != null) return
         val player = BungeePlayer(event.player)
-        if (!core.maintenance.canBypass(player)) player.disconnect(core.maintenance.kickMessage())
+        core.loginDenial(player)?.let(player::disconnect)
+    }
+
+    @EventHandler
+    fun onServerSwitch(event: ServerSwitchEvent) {
+        if (event.from == null) core.maintenance.notifyBypass(BungeePlayer(event.player))
     }
 
     @EventHandler

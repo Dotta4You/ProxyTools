@@ -34,9 +34,9 @@ class MaintenanceService(private val core: ProxyToolsCore) {
         false
     }
 
-    fun kickMessage(): String = safeMessage("maintenance-kick") { core.message("maintenance-kick", "duration" to describeDuration()) }
+    fun kickMessage(): String = safeMessage("maintenance-kick") { core.message("maintenance-kick", "duration" to describeDuration()) + reasonText("\n", "maintenance-kick-reason") }
 
-    fun redirectMessage(): String = safeMessage("maintenance-redirect") { core.message("maintenance-redirect") }
+    fun redirectMessage(): String = safeMessage("maintenance-redirect") { core.message("maintenance-redirect") + reasonSuffix() }
 
     private inline fun safeMessage(key: String, build: () -> String): String = try {
         build()
@@ -46,7 +46,7 @@ class MaintenanceService(private val core: ProxyToolsCore) {
     }
 
     @Synchronized
-    fun setEnabled(value: Boolean): ToggleResult {
+    fun setEnabled(value: Boolean, reason: String? = null): ToggleResult {
         if (enabled == value) return ToggleResult.Unchanged
         if (value) {
             clearSchedule()
@@ -54,16 +54,16 @@ class MaintenanceService(private val core: ProxyToolsCore) {
             cancel(endTasks)
             core.store.setMaintenanceUntil(null)
         }
-        core.store.setEnabled(value)
+        core.store.setEnabled(value, reason.takeIf { value })
         return ToggleResult.Changed(if (value) kickIfConfigured() else 0)
     }
 
     @Synchronized
-    fun enableFor(durationMillis: Long): TimerResult {
+    fun enableFor(durationMillis: Long, reason: String? = null): TimerResult {
         require(durationMillis > 0) { "durationMillis must be positive" }
         if (core.store.maintenanceUntil != null) return TimerResult.AlreadyRunning
         clearSchedule()
-        core.store.setEnabled(true)
+        core.store.setEnabled(true, reason)
         core.store.setMaintenanceUntil(core.platform.now() + durationMillis)
         val kicked = kickIfConfigured()
         armEndTimer()
@@ -103,12 +103,24 @@ class MaintenanceService(private val core: ProxyToolsCore) {
         return core.message("duration-remaining", "time" to DurationText.format(secondsUntil(until)))
     }
 
+    fun reasonSuffix(): String = reasonText("", "reason-suffix")
+
+    private fun reasonText(separator: String, key: String): String =
+        core.store.maintenanceReason?.let { separator + core.message(key, "reason" to it) }.orEmpty()
+
+    fun loginDenial(player: PlatformPlayer): String? =
+        if (enabled && redirectTarget() == null && !canBypass(player)) kickMessage() else null
+
+    fun notifyBypass(player: PlatformPlayer) {
+        if (enabled && canBypass(player)) player.sendMessage(core.message("maintenance-bypass") + reasonSuffix())
+    }
+
     @Synchronized
-    fun scheduleStart(delayMillis: Long, durationMillis: Long): ScheduleResult {
+    fun scheduleStart(delayMillis: Long, durationMillis: Long, reason: String? = null): ScheduleResult {
         require(delayMillis > 0 && durationMillis > 0) { "delayMillis and durationMillis must be positive" }
         if (enabled) return ScheduleResult.AlreadyActive
         if (core.store.scheduledStart != null) return ScheduleResult.AlreadyScheduled
-        core.store.setSchedule(core.platform.now() + delayMillis, durationMillis)
+        core.store.setSchedule(core.platform.now() + delayMillis, durationMillis, reason)
         armStartTimer()
         return ScheduleResult.Scheduled
     }
@@ -138,9 +150,10 @@ class MaintenanceService(private val core: ProxyToolsCore) {
         when {
             enabled -> core.store.setSchedule(null, null)
             start <= core.platform.now() -> {
+                val reason = core.store.scheduledReason
                 core.store.setSchedule(null, null)
                 core.platform.info("A scheduled maintenance window was reached while offline; starting it now.")
-                enableFor(duration)
+                enableFor(duration, reason)
             }
             else -> armStartTimer()
         }
@@ -185,6 +198,7 @@ class MaintenanceService(private val core: ProxyToolsCore) {
         tasks.clear()
     }
 
+    // TODO: show the timer/schedule countdown as an actionbar or bossbar instead of chat broadcasts
     private fun broadcastWarning(secondsLeft: Long) {
         if (!enabled) return
         core.broadcast(core.message("timer-warning", "time" to DurationText.format(secondsLeft)))
@@ -209,7 +223,8 @@ class MaintenanceService(private val core: ProxyToolsCore) {
         startTasks.clear()
         val duration = core.store.scheduledDuration
         if (enabled || core.store.scheduledStart == null || duration == null) return
+        val reason = core.store.scheduledReason
         core.store.setSchedule(null, null)
-        enableFor(duration)
+        enableFor(duration, reason)
     }
 }

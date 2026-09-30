@@ -13,14 +13,10 @@ class CommandHandler(private val core: ProxyToolsCore) {
         if (!allowed) return actor.reply("no-permission")
 
         when (sub) {
-            "on" -> onCommand(actor, args.getOrNull(1))
-            "off" -> setState(actor, false)
+            "on" -> onCommand(actor, args.drop(1))
+            "off" -> setState(actor, false, null)
             "schedule" -> scheduleCommand(actor, args.drop(1))
-            "status", null -> actor.reply(
-                if (core.maintenance.enabled) "status-on" else "status-off",
-                "duration" to core.maintenance.describeDuration(),
-                "schedule" to core.maintenance.describeSchedule(),
-            )
+            "status", null -> status(actor)
             in WHITELIST_ALIASES -> whitelist(actor, args.drop(1))
             else -> actor.reply("usage-maintenance")
         }
@@ -89,12 +85,30 @@ class CommandHandler(private val core: ProxyToolsCore) {
         core.broadcast(core.message("broadcast", "message" to args.joinToString(" ")))
     }
 
-    fun suggestBroadcast(actor: CommandActor, args: List<String>): List<String> = emptyList()
+    fun teamChat(actor: CommandActor, args: List<String>) {
+        if (!core.config.boolean("teamchat.enabled", true)) return actor.reply("teamchat-disabled")
+        if (!actor.hasPermission(Permissions.TEAMCHAT)) return actor.reply("no-permission")
+        if (args.isEmpty()) return actor.reply("usage-teamchat")
+        core.teamChat(actor, args.joinToString(" "))
+    }
 
-    private fun onCommand(actor: CommandActor, durationArg: String?) {
-        if (durationArg == null) return setState(actor, true)
+    fun noSuggestions(actor: CommandActor, args: List<String>): List<String> = emptyList()
+
+    private fun status(actor: CommandActor) {
+        val placeholders = arrayOf("duration" to core.maintenance.describeDuration(), "schedule" to core.maintenance.describeSchedule())
+        if (core.maintenance.enabled) {
+            actor.sendMessage(core.message("status-on", *placeholders) + core.maintenance.reasonSuffix())
+        } else {
+            actor.reply("status-off", *placeholders)
+        }
+    }
+
+    private fun onCommand(actor: CommandActor, args: List<String>) {
+        val durationArg = args.firstOrNull()?.takeIf { it.firstOrNull()?.isDigit() == true }
+        val reason = args.drop(if (durationArg != null) 1 else 0).joinToString(" ").ifBlank { null }
+        if (durationArg == null) return setState(actor, true, reason)
         val millis = DurationText.parseMillis(durationArg) ?: return actor.reply("invalid-duration", "input" to durationArg)
-        when (val result = core.maintenance.enableFor(millis)) {
+        when (val result = core.maintenance.enableFor(millis, reason)) {
             is TimerResult.Started -> actor.reply(
                 "enabled-timed",
                 "count" to result.kicked.toString(),
@@ -114,7 +128,7 @@ class CommandHandler(private val core: ProxyToolsCore) {
         val delayMillis = DurationText.parseMillis(delayArg) ?: return actor.reply("invalid-duration", "input" to delayArg)
         val durationMillis = DurationText.parseMillis(durationArg) ?: return actor.reply("invalid-duration", "input" to durationArg)
 
-        when (core.maintenance.scheduleStart(delayMillis, durationMillis)) {
+        when (core.maintenance.scheduleStart(delayMillis, durationMillis, args.drop(2).joinToString(" ").ifBlank { null })) {
             ScheduleResult.Scheduled -> actor.reply(
                 "schedule-set",
                 "delay" to DurationText.format(delayMillis / 1000),
@@ -125,8 +139,8 @@ class CommandHandler(private val core: ProxyToolsCore) {
         }
     }
 
-    private fun setState(actor: CommandActor, enable: Boolean) {
-        when (val result = core.maintenance.setEnabled(enable)) {
+    private fun setState(actor: CommandActor, enable: Boolean, reason: String?) {
+        when (val result = core.maintenance.setEnabled(enable, reason)) {
             is ToggleResult.Changed -> actor.reply(if (enable) "enabled" else "disabled", "count" to result.kicked.toString())
             ToggleResult.Unchanged -> actor.reply(if (enable) "already-on" else "already-off")
         }

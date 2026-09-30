@@ -24,12 +24,14 @@ messages:
   status-off: "%prefix%Wartungsmodus ist aktuell &cdeaktiviert&7 (%schedule%)."
   duration-remaining: "endet in %time%"
   duration-none: "kein Timer gesetzt"
+  reason-suffix: " &7Grund: &f%reason%"
+  maintenance-kick-reason: "&7Grund: &f%reason%"
   invalid-duration: "%prefix%&cUngültige Dauer '%input%'. Beispiel: 1h30m, 45s."
   timer-already-running: "%prefix%&cEs läuft bereits ein Timer (%duration%). Schalte die Wartung erst aus, um ihn zu ändern."
   timer-warning: "%prefix%&eWartungsmodus endet in &f%time%&e."
   timer-ended: "%prefix%Wartungsmodus wurde automatisch beendet."
 
-  # /maintenance schedule <Verzögerung> <Dauer> — startet die Wartung automatisch später
+  # /maintenance schedule <Verzögerung> <Dauer> [Grund]|cancel — startet die Wartung automatisch später
   schedule-none: "kein Fenster geplant"
   schedule-pending: "startet in %delay%, läuft für %duration%"
   schedule-set: "%prefix%Wartung geplant: Start in &f%delay%&7, Dauer &f%duration%&7."
@@ -37,6 +39,18 @@ messages:
   schedule-cancelled: "%prefix%Geplante Wartung wurde abgebrochen."
   schedule-not-set: "%prefix%&cAktuell ist keine Wartung geplant."
   schedule-warning: "%prefix%&eWartungsmodus startet in &f%time%&e."
+
+  maintenance-bypass: "%prefix%&eWartungsmodus ist aktiv. Du darfst wegen deines Bypasses trotzdem joinen."
+
+  slots-full:
+    - "&c&lServer voll"
+    - ""
+    - "&7Das Netzwerk hat sein Spielerlimit erreicht."
+
+  slots-reserved:
+    - "&c&lServer voll"
+    - ""
+    - "&7Die restlichen Plätze sind für VIPs reserviert."
 
   motd-preview: "%prefix%&7Aktuelle MOTD:\n%text%"
   motd-preview-empty: "%prefix%Aktuell ist keine eigene MOTD aktiv."
@@ -50,13 +64,17 @@ messages:
   whitelist-list: "%prefix%Wartungs-Whitelist (&f%count%&7): &f%players%"
   whitelist-pending-suffix: " &8(ausstehend)" # Anhang in whitelist-list für unbestätigte Einträge
 
-  usage-maintenance: "%prefix%Verwendung: &f/maintenance <on [Dauer]|off|schedule|status>"
+  usage-maintenance: "%prefix%Verwendung: &f/maintenance <on [Dauer] [Grund]|off|schedule|status>"
   usage-whitelist: "%prefix%Verwendung: &f/maintenance whitelist <add|remove|list> [Spieler]"
-  usage-schedule: "%prefix%Verwendung: &f/maintenance schedule <Verzögerung> <Dauer>|cancel"
+  usage-schedule: "%prefix%Verwendung: &f/maintenance schedule <Verzögerung> <Dauer> [Grund]|cancel"
   usage-proxytools: "%prefix%Verwendung: &f/proxytools <info|motd|reload>"
   usage-broadcast: "%prefix%Verwendung: &f/broadcast <Nachricht>"
+  usage-teamchat: "%prefix%Verwendung: &f/teamchat <Nachricht>"
+  teamchat-disabled: "%prefix%&cDer Teamchat ist deaktiviert."
 
   broadcast: "%prefix%&e%message%"
+
+  teamchat: "&8[&cTeam&8] &7%player% &8(&7%server%&8)&7: &f%message%"
 
   info: "%prefix%ProxyTools &fv%version% &7auf &f%platform%"
   reloaded: "%prefix%Konfiguration neu geladen."
