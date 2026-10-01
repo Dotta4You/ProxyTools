@@ -1,6 +1,10 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.player
 
-class SlotService(private val core: ProxyToolsCore) {
+import de.doetchen.projects.proxytools.core.Permissions
+import de.doetchen.projects.proxytools.core.PlatformPlayer
+import de.doetchen.projects.proxytools.core.ProxyToolsCore
+
+internal class SlotService(private val core: ProxyToolsCore) {
     val enabled: Boolean get() = core.config.boolean("slots.enabled")
 
     fun limit(): Int = core.config.int("slots.max-players", 100).coerceAtLeast(1)
@@ -9,7 +13,7 @@ class SlotService(private val core: ProxyToolsCore) {
 
     fun denial(player: PlatformPlayer): String? {
         if (!enabled || player.hasPermission(Permissions.SLOTS_BYPASS)) return null
-        val others = core.platform.onlinePlayers.count { it.uniqueId != player.uniqueId }
+        val others = core.platform.onlineCount - if (core.platform.findPlayer(player.uniqueId) != null) 1 else 0
         val key = when {
             others >= limit() -> "slots-full"
             others >= limit() - reserved() && !player.hasPermission(Permissions.SLOTS_RESERVED) -> "slots-reserved"

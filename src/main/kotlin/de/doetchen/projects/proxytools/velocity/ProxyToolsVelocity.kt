@@ -3,13 +3,18 @@ package de.doetchen.projects.proxytools.velocity
 import com.google.inject.Inject
 import com.velocitypowered.api.command.CommandSource
 import com.velocitypowered.api.command.SimpleCommand
+import com.velocitypowered.api.event.PostOrder
 import com.velocitypowered.api.event.ResultedEvent
 import com.velocitypowered.api.event.Subscribe
+import com.velocitypowered.api.event.connection.DisconnectEvent
 import com.velocitypowered.api.event.connection.LoginEvent
+import com.velocitypowered.api.event.connection.PostLoginEvent
+import com.velocitypowered.api.event.player.PlayerChooseInitialServerEvent
 import com.velocitypowered.api.event.player.ServerPostConnectEvent
 import com.velocitypowered.api.event.player.ServerPreConnectEvent
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent
 import com.velocitypowered.api.event.proxy.ProxyPingEvent
+import com.velocitypowered.api.event.proxy.ProxyShutdownEvent
 import com.velocitypowered.api.plugin.Plugin
 import com.velocitypowered.api.plugin.annotation.DataDirectory
 import com.velocitypowered.api.proxy.Player
@@ -17,13 +22,15 @@ import com.velocitypowered.api.proxy.ProxyServer
 import com.velocitypowered.api.proxy.server.ServerPing
 import com.velocitypowered.api.util.Favicon
 import de.doetchen.projects.proxytools.core.CommandActor
-import de.doetchen.projects.proxytools.core.FaviconConverter
-import de.doetchen.projects.proxytools.core.MotdService
 import de.doetchen.projects.proxytools.core.Platform
 import de.doetchen.projects.proxytools.core.PlatformPlayer
 import de.doetchen.projects.proxytools.core.ProxyToolsCore
 import de.doetchen.projects.proxytools.core.ScheduledTask
+import de.doetchen.projects.proxytools.core.command.CommandSpec
+import de.doetchen.projects.proxytools.core.motd.FaviconConverter
+import de.doetchen.projects.proxytools.core.motd.MotdService
 import net.kyori.adventure.text.Component
+import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
 import org.bstats.charts.SimplePie
 import org.bstats.velocity.Metrics
@@ -54,28 +61,26 @@ class ProxyToolsVelocity @Inject constructor(
             core = ProxyToolsCore(VelocityPlatform(server, logger, dataDirectory, version, this))
 
             server.eventManager.register(this, VelocityListener(core, server))
-            register("maintenance", core.commands::maintenance, core.commands::suggestMaintenance)
-            register("proxytools", core.commands::proxyTools, core.commands::suggestProxyTools, "pt")
-            register("broadcast", core.commands::broadcast, core.commands::noSuggestions, "bc")
-            register("teamchat", core.commands::teamChat, core.commands::noSuggestions, "tc")
+            core.commands.specs().forEach(::register)
             val metrics = metricsFactory.make(this, BSTATS_PLUGIN_ID)
             core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
         } catch (e: Exception) {
             logger.error("ProxyTools failed to start, disabling", e)
             server.eventManager.unregisterListeners(this)
-            listOf("maintenance", "proxytools", "pt", "broadcast", "bc", "teamchat", "tc")
-                .forEach { server.commandManager.unregister(it) }
+            if (::core.isInitialized) {
+                core.commands.specs().flatMap { listOf(it.name) + it.aliases }.forEach { server.commandManager.unregister(it) }
+            }
         }
     }
 
-    private fun register(
-        name: String,
-        executor: (CommandActor, List<String>) -> Unit,
-        completer: (CommandActor, List<String>) -> List<String>,
-        vararg aliases: String,
-    ) {
-        val meta = server.commandManager.metaBuilder(name).aliases(*aliases).plugin(this).build()
-        server.commandManager.register(meta, VelocityCommand(executor, completer))
+    @Subscribe
+    fun onProxyShutdown(event: ProxyShutdownEvent) {
+        if (::core.isInitialized) core.shutdown()
+    }
+
+    private fun register(spec: CommandSpec) {
+        val meta = server.commandManager.metaBuilder(spec.name).aliases(*spec.aliases.toTypedArray()).plugin(this).build()
+        server.commandManager.register(meta, VelocityCommand(server, spec))
     }
 }
 
@@ -94,9 +99,13 @@ private class VelocityPlatform(
     override val proxyName: String get() = server.version.name
     override val proxyVersion: String get() = server.version.version
     override val onlinePlayers get() = server.allPlayers.map { VelocityPlayer(it, server) }
+    override val onlineCount: Int get() = server.playerCount
     override val configuredMaxPlayers: Int get() = server.configuration.showMaxPlayers
 
+    override fun findPlayer(name: String): PlatformPlayer? = server.getPlayer(name).map { VelocityPlayer(it, server) }.orElse(null)
+    override fun findPlayer(id: UUID): PlatformPlayer? = server.getPlayer(id).map { VelocityPlayer(it, server) }.orElse(null)
     override fun hasServer(name: String) = server.getServer(name).isPresent
+    override fun playerCount(serverName: String) = server.getServer(serverName).map { it.playersConnected.size }.orElse(0)
 
     override fun info(message: String) = logger.info(message)
     override fun warn(message: String) = logger.warn(message)
@@ -123,27 +132,36 @@ private class VelocityPlayer(private val player: Player, private val server: Pro
     }
 }
 
-private class VelocityActor(private val source: CommandSource) : CommandActor {
+private class VelocityActor(private val source: CommandSource, private val server: ProxyServer) : CommandActor {
     override val name: String get() = (source as? Player)?.username ?: "Console"
     override val serverName: String? get() = (source as? Player)?.currentServer?.orElse(null)?.serverInfo?.name
+    override val uniqueId: UUID? get() = (source as? Player)?.uniqueId
+
+    override fun connectTo(serverName: String): Boolean {
+        val player = source as? Player ?: return false
+        val target = server.getServer(serverName).orElse(null) ?: return false
+        player.createConnectionRequest(target).connect()
+        return true
+    }
+
     override fun hasPermission(permission: String) = source.hasPermission(permission)
-    override fun sendMessage(message: String) = source.sendMessage(component(message))
+    override fun sendMessage(message: String, openUrl: String?) {
+        val text = component(message)
+        source.sendMessage(if (openUrl != null) text.clickEvent(ClickEvent.openUrl(openUrl)) else text)
+    }
 }
 
-private class VelocityCommand(
-    private val executor: (CommandActor, List<String>) -> Unit,
-    private val completer: (CommandActor, List<String>) -> List<String>,
-) : SimpleCommand {
+private class VelocityCommand(private val server: ProxyServer, private val spec: CommandSpec) : SimpleCommand {
     override fun hasPermission(invocation: SimpleCommand.Invocation) = true
 
     override fun execute(invocation: SimpleCommand.Invocation) =
-        executor(VelocityActor(invocation.source()), invocation.arguments().toList())
+        spec.execute(VelocityActor(invocation.source(), server), invocation.arguments().toList())
 
     override fun suggest(invocation: SimpleCommand.Invocation): List<String> =
-        completer(VelocityActor(invocation.source()), invocation.arguments().toList())
+        spec.suggest(VelocityActor(invocation.source(), server), invocation.arguments().toList())
 }
 
-class VelocityListener(private val core: ProxyToolsCore, private val server: ProxyServer) {
+internal class VelocityListener(private val core: ProxyToolsCore, private val server: ProxyServer) {
     private val favicons = FaviconConverter(core.platform::warn) { Favicon.create(ImageIO.read(ByteArrayInputStream(it))) }
 
     @Subscribe
@@ -164,6 +182,11 @@ class VelocityListener(private val core: ProxyToolsCore, private val server: Pro
         event.ping = builder.build()
     }
 
+    @Subscribe(order = PostOrder.EARLY)
+    fun preloadPlayerData(event: LoginEvent) {
+        core.playerData.preload(event.player.uniqueId)
+    }
+
     @Subscribe
     fun onLogin(event: LoginEvent) {
         core.loginDenial(VelocityPlayer(event.player, server))?.let {
@@ -172,8 +195,25 @@ class VelocityListener(private val core: ProxyToolsCore, private val server: Pro
     }
 
     @Subscribe
+    fun onPostLogin(event: PostLoginEvent) {
+        core.teamAlerts.joined(VelocityPlayer(event.player, server))
+    }
+
+    @Subscribe
+    fun onDisconnect(event: DisconnectEvent) {
+        core.playerLeft(VelocityPlayer(event.player, server))
+    }
+
+    @Subscribe
+    fun onChooseInitialServer(event: PlayerChooseInitialServerEvent) {
+        val name = core.lastServers.target(event.player.uniqueId) ?: return
+        server.getServer(name).ifPresent { event.setInitialServer(it) }
+    }
+
+    @Subscribe
     fun onServerPostConnect(event: ServerPostConnectEvent) {
         if (event.previousServer == null) core.maintenance.notifyBypass(VelocityPlayer(event.player, server))
+        event.player.currentServer.ifPresent { core.lastServers.record(event.player.uniqueId, it.serverInfo.name) }
     }
 
     @Subscribe

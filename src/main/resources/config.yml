@@ -1,12 +1,27 @@
-# Reload with /proxytools reload. Icons: icon.png / icon-maintenance.png in this folder.
-# Text: &-codes, &#RRGGBB, <gradient:#RRGGBB:#RRGGBB>..</gradient>, <rainbow>..</rainbow>. Placeholders: %online% %max%
+# ProxyTools - reload with /proxytools reload or (recommended) do a proxy restart.
+# Text: &a, &#RRGGBB, <gradient:#RRGGBB:#RRGGBB>..</gradient>, <rainbow>..</rainbow>
 
 config-version: 1 # do not change
-language: en # en, de, or your own lang/<code>.yml
+language: en # en, de or your own lang/<code>.yml
 
+# --- Storage (change needs a restart) ---
+
+storage:
+  type: yaml # yaml, h2 (file) or mysql (also MariaDB)
+  mysql:
+    host: localhost
+    port: 3306
+    database: proxytools
+    username: root
+    password: ""
+    use-ssl: false # encrypted, certificate not verified
+
+# --- Server list ---
+
+# icons/default.png and icons/maintenance.png set the server icon
 motd:
   enabled: true
-  mode: random # random | sequential | static (first entry only)
+  mode: random # random, sequential or static (first entry)
   interval-seconds: 4
   entries:
     - line1: "&6&lMy Network &8» &fWelcome!"
@@ -15,23 +30,24 @@ motd:
       line2: "&7Join now and have fun"
     - line1: "<gradient:#00c6ff:#0072ff>My Network</gradient>"
       line2: "&7%online%&7/&7%max% &7online &8- &7<rainbow>have fun!</rainbow>"
-  max-players: -1 # -1 = proxy value, number = fixed, dynamic = online + headroom
+  max-players: -1 # -1 = proxy value, custom number, or "dynamic" (online + headroom)
   max-players-headroom: 1
-  hover: # tooltip over the player count
+  hover:
     enabled: false
-    mode: custom # custom | players (real online players)
+    mode: custom # custom or players (real online players)
     lines:
       - "&6&lMy Network"
       - "&7%online%/%max% players online"
 
-maintenance:
-  kick-on-enable: true # kick everyone without bypass when it turns on
-  redirect-server: "" # send them to this backend instead of kicking; empty = kick
-  version-text: "&cMaintenance" # replaces the version in the server list; empty = keep
-  timer-warnings: [300, 60, 10] # seconds before the end of a timed maintenance
-  schedule-warnings: [300, 60, 10] # seconds before the start of a scheduled one
+# --- Maintenance ---
 
-  motd: # same options as above
+maintenance:
+  kick-on-enable: true
+  redirect-server: "" # send players here instead of kicking, empty = kick
+  version-text: "&cMaintenance" # shown instead of the version, empty = real one
+  timer-warnings: [300, 60, 10] # seconds before a timed maintenance ends
+  schedule-warnings: [300, 60, 10] # seconds before a scheduled one starts
+  motd: # same options as the normal motd
     enabled: true
     mode: random
     interval-seconds: 4
@@ -47,21 +63,47 @@ maintenance:
         - "&c&lMaintenance"
         - "&7The network is currently closed."
 
-slots: # own player limit, replaces the proxy's (BungeeCord: set player_limit to -1 there)
+# --- Players ---
+
+slots: # own player limit (BungeeCord: set player_limit to -1 there (BungeeConfig)
   enabled: false
   max-players: 100
-  reserved: 10 # of these, only for proxytools.slots.reserved; proxytools.slots.bypass always gets in
+  reserved: 10 # for proxytools.slots.reserved, proxytools.slots.bypass always joins
 
-announcements: # automatic chat messages to everyone online
+hub: # /hub, /lobby, /l
+  enabled: true
+  servers: [lobby]
+  mode: first # first or least-players
+
+remember-last-server: # join where the player left off
   enabled: false
-  mode: sequential # sequential | random
+  exclude: [] # never remembered, e.g. an auth or limbo server
+
+# --- Chat ---
+
+msg: # /msg, /reply, /ignore, /msgtoggle & /socialspy
+  enabled: true
+
+teamchat: # /teamchat, /tc
+  enabled: true
+  alerts: true # show teammember joins and leaves
+
+announcements:
+  enabled: false
+  mode: sequential # sequential or random
   interval-seconds: 300
   prefix: "&8[&6Info&8] &f"
-  messages:
+  messages: # a nested list is one message over several lines
     - "&eJoin our Discord: &bdiscord.example.com"
     - "&eVote for the network and get rewards!"
     - - "&eTwo lines in one message:"
-      - "&7a nested list is shown as several lines"
+      - "&7shown one below the other"
 
-teamchat: # /teamchat, alias /tc
-  enabled: true
+# --- Extras ---
+
+info-commands: {} # own commands, new ones need a proxy restart. Example:
+#  discord:
+#    aliases: [dc]
+#    text: ["&9Discord: &bdiscord.example.com"]
+#    url: https://discord.example.com # optional, makes it clickable
+#    permission: "" # optional

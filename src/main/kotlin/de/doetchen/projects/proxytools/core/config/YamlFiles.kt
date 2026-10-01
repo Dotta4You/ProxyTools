@@ -1,4 +1,4 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.config
 
 import org.yaml.snakeyaml.DumperOptions
 import org.yaml.snakeyaml.LoaderOptions

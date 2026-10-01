@@ -1,8 +1,42 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.command
 
+import de.doetchen.projects.proxytools.core.CommandActor
+import de.doetchen.projects.proxytools.core.Permissions
+import de.doetchen.projects.proxytools.core.ProxyToolsCore
+import de.doetchen.projects.proxytools.core.maintenance.ScheduleResult
+import de.doetchen.projects.proxytools.core.maintenance.TimerResult
+import de.doetchen.projects.proxytools.core.maintenance.ToggleResult
+import de.doetchen.projects.proxytools.core.maintenance.WhitelistAddResult
+import de.doetchen.projects.proxytools.core.maintenance.WhitelistRemoveResult
+import de.doetchen.projects.proxytools.core.text.DurationText
+import de.doetchen.projects.proxytools.core.text.Text
 import java.util.UUID
 
-class CommandHandler(private val core: ProxyToolsCore) {
+internal class CommandSpec(
+    val name: String,
+    val aliases: List<String>,
+    val execute: (CommandActor, List<String>) -> Unit,
+    val suggest: (CommandActor, List<String>) -> List<String>,
+)
+
+internal class CommandHandler(private val core: ProxyToolsCore) {
+    fun specs(): List<CommandSpec> = buildList {
+        add(spec("maintenance", ::maintenance, ::suggestMaintenance))
+        add(spec("proxytools", ::proxyTools, ::suggestProxyTools, "pt"))
+        add(spec("broadcast", ::broadcast, ::noSuggestions, "bc"))
+        add(spec("teamchat", ::teamChat, ::noSuggestions, "tc"))
+        add(spec("hub", ::hub, ::noSuggestions, "lobby", "l"))
+        add(spec("msg", ::msg, ::suggestMsg, "tell", "w", "whisper", "m"))
+        add(spec("reply", ::reply, ::noSuggestions, "r"))
+        add(spec("socialspy", ::socialSpy, ::suggestSocialSpy, "spy"))
+        add(spec("ignore", ::ignore, ::suggestIgnore))
+        add(spec("msgtoggle", ::msgToggle, ::noSuggestions, "togglemsg"))
+        core.infoCommands.definitions().forEach { definition ->
+            val run = { actor: CommandActor, _: List<String> -> infoCommand(definition.name, actor) }
+            add(spec(definition.name, run, ::noSuggestions, *definition.aliases.toTypedArray()))
+        }
+    }
+
     fun maintenance(actor: CommandActor, args: List<String>) {
         val sub = args.firstOrNull()?.lowercase()
         val allowed = when (sub) {
@@ -92,10 +126,141 @@ class CommandHandler(private val core: ProxyToolsCore) {
         core.teamChat(actor, args.joinToString(" "))
     }
 
+    fun hub(actor: CommandActor, args: List<String>) {
+        when {
+            !core.hub.enabled -> actor.reply("hub-disabled")
+            !actor.isPlayer -> actor.reply("players-only")
+            core.hub.isHub(actor.serverName) -> actor.reply("hub-already")
+            else -> {
+                val target = core.hub.target()
+                if (target != null && actor.connectTo(target)) actor.reply("hub-connecting") else actor.reply("hub-unavailable")
+            }
+        }
+    }
+
+    fun msg(actor: CommandActor, args: List<String>) {
+        if (!core.privateMessages.enabled) return actor.reply("msg-disabled")
+        if (!actor.isPlayer) return actor.reply("players-only")
+        if (args.size < 2) return actor.reply("usage-msg")
+        val target = core.platform.findPlayer(args[0]) ?: return actor.reply("player-not-found", "player" to args[0])
+        if (target.uniqueId == actor.uniqueId) return actor.reply("msg-self")
+        if (core.privateMessages.isBlocked(actor, target)) return actor.reply("msg-blocked")
+        core.privateMessages.send(actor, target, args.drop(1).joinToString(" "))
+    }
+
+    fun reply(actor: CommandActor, args: List<String>) {
+        if (!core.privateMessages.enabled) return actor.reply("msg-disabled")
+        if (!actor.isPlayer) return actor.reply("players-only")
+        if (args.isEmpty()) return actor.reply("usage-reply")
+        if (!core.privateMessages.hasPartner(actor)) return actor.reply("reply-nobody")
+        val target = core.privateMessages.replyTarget(actor) ?: return actor.reply("reply-offline")
+        if (core.privateMessages.isBlocked(actor, target)) return actor.reply("msg-blocked")
+        core.privateMessages.send(actor, target, args.joinToString(" "))
+    }
+
+    fun socialSpy(actor: CommandActor, args: List<String>) {
+        if (!actor.hasPermission(Permissions.SOCIALSPY)) return actor.reply("no-permission")
+        val id = actor.uniqueId ?: return actor.reply("players-only")
+        val enable = when (args.firstOrNull()?.lowercase()) {
+            null -> null
+            "on" -> true
+            "off" -> false
+            else -> return actor.reply("usage-socialspy")
+        }
+        actor.reply(if (core.privateMessages.setSpy(id, enable)) "socialspy-on" else "socialspy-off")
+    }
+
+    fun ignore(actor: CommandActor, args: List<String>) {
+        if (!core.privateMessages.enabled) return actor.reply("msg-disabled")
+        val id = actor.uniqueId ?: return actor.reply("players-only")
+        val arg = args.firstOrNull() ?: return actor.reply("usage-ignore")
+        val data = core.playerData
+        if (arg.equals("list", ignoreCase = true)) {
+            val names = data.ignoredNames(id)
+            if (names.isEmpty()) return actor.reply("ignore-list-empty")
+            return actor.reply("ignore-list", "players" to names.joinToString(", "))
+        }
+        val online = core.platform.findPlayer(arg)
+        when {
+            online?.uniqueId == id -> actor.reply("msg-self")
+            online != null && data.isIgnoring(id, online.uniqueId) -> {
+                data.unignore(id, online.uniqueId)
+                actor.reply("ignore-removed", "player" to online.name)
+            }
+            online != null -> {
+                data.ignore(id, online.uniqueId, online.name)
+                actor.reply("ignore-added", "player" to online.name)
+            }
+            data.unignoreByName(id, arg) -> actor.reply("ignore-removed", "player" to arg)
+            else -> actor.reply("player-not-found", "player" to arg)
+        }
+    }
+
+    fun msgToggle(actor: CommandActor, args: List<String>) {
+        if (!core.privateMessages.enabled) return actor.reply("msg-disabled")
+        val id = actor.uniqueId ?: return actor.reply("players-only")
+        val disable = !core.playerData.messagesDisabled(id)
+        core.playerData.setMessagesDisabled(id, disable)
+        actor.reply(if (disable) "msgtoggle-off" else "msgtoggle-on")
+    }
+
+    fun infoCommand(name: String, actor: CommandActor) {
+        val command = core.infoCommands.find(name) ?: return actor.reply("command-removed")
+        if (command.permission != null && !actor.hasPermission(command.permission)) return actor.reply("no-permission")
+        val text = Text.replace(command.text, "player" to actor.name, "online" to core.platform.onlineCount.toString())
+        actor.sendMessage(Text.colorize(text), command.url)
+    }
+
+    fun suggestIgnore(actor: CommandActor, args: List<String>): List<String> {
+        if (args.size > 1) return emptyList()
+        val own = actor.uniqueId?.let(core.playerData::ignoredNames).orEmpty()
+        return (listOf("list") + core.platform.onlinePlayers.map { it.name }.filter { it != actor.name } + own).distinct()
+            .filter { it.startsWith(args.firstOrNull().orEmpty(), ignoreCase = true) }
+    }
+
+    fun suggestMsg(actor: CommandActor, args: List<String>): List<String> {
+        if (args.size > 1) return emptyList()
+        return core.platform.onlinePlayers.map { it.name }
+            .filter { it.startsWith(args.firstOrNull().orEmpty(), ignoreCase = true) && it != actor.name }
+    }
+
+    fun suggestSocialSpy(actor: CommandActor, args: List<String>): List<String> {
+        if (args.size > 1 || !actor.hasPermission(Permissions.SOCIALSPY)) return emptyList()
+        return listOf("on", "off").filter { it.startsWith(args.firstOrNull().orEmpty(), ignoreCase = true) }
+    }
+
     fun noSuggestions(actor: CommandActor, args: List<String>): List<String> = emptyList()
 
+    private fun spec(
+        name: String,
+        execute: (CommandActor, List<String>) -> Unit,
+        suggest: (CommandActor, List<String>) -> List<String>,
+        vararg aliases: String,
+    ) = CommandSpec(
+        name,
+        aliases.toList(),
+        { actor, args ->
+            try {
+                execute(actor, args)
+            } catch (e: Exception) {
+                core.platform.warn("/$name failed: $e")
+                actor.sendMessage(core.message("command-error"))
+            }
+        },
+        { actor, args ->
+            try {
+                suggest(actor, args)
+            } catch (e: Exception) {
+                emptyList()
+            }
+        },
+    )
+
     private fun status(actor: CommandActor) {
-        val placeholders = arrayOf("duration" to core.maintenance.describeDuration(), "schedule" to core.maintenance.describeSchedule())
+        val placeholders = arrayOf(
+            "duration" to core.maintenance.describeDuration(),
+            "schedule" to core.maintenance.describeSchedule(),
+        )
         if (core.maintenance.enabled) {
             actor.sendMessage(core.message("status-on", *placeholders) + core.maintenance.reasonSuffix())
         } else {
@@ -170,7 +335,7 @@ class CommandHandler(private val core: ProxyToolsCore) {
 
     private fun addToWhitelist(actor: CommandActor, arg: String) {
         val uuid = runCatching { UUID.fromString(arg) }.getOrNull()
-        val online = core.platform.onlinePlayers.firstOrNull { it.name.equals(arg, ignoreCase = true) }
+        val online = core.platform.findPlayer(arg)
         val result = when {
             uuid != null -> core.store.addResolved(uuid, "?")
             online != null -> core.store.addResolved(online.uniqueId, online.name)

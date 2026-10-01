@@ -1,8 +1,11 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.chat
 
+import de.doetchen.projects.proxytools.core.ProxyToolsCore
+import de.doetchen.projects.proxytools.core.ScheduledTask
+import de.doetchen.projects.proxytools.core.text.Text
 import kotlin.random.Random
 
-class AnnouncementService(private val core: ProxyToolsCore) {
+internal class AnnouncementService(private val core: ProxyToolsCore) {
     private var task: ScheduledTask? = null
     private var generation = 0
     private var lastIndex = -1
@@ -24,7 +27,11 @@ class AnnouncementService(private val core: ProxyToolsCore) {
     @Synchronized
     private fun tick(expectedGeneration: Int) {
         if (expectedGeneration != generation) return
-        announce()
+        try {
+            announce()
+        } catch (e: Exception) {
+            core.platform.warn("Could not send an announcement: ${e.message}")
+        }
         schedule(expectedGeneration)
     }
 

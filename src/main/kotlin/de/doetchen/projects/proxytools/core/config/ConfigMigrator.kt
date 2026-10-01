@@ -1,11 +1,11 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.config
 
 import java.nio.file.Files
 import java.nio.file.Path
 
-typealias MigrationStep = (MutableMap<String, Any?>) -> Unit
+internal typealias MigrationStep = (MutableMap<String, Any?>) -> Unit
 
-object ConfigMigrator {
+internal object ConfigMigrator {
     private val steps: List<MigrationStep> = emptyList()
 
     val CURRENT_VERSION = steps.size + 1

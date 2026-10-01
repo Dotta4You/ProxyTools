@@ -1,24 +1,29 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.maintenance
 
+import de.doetchen.projects.proxytools.core.Permissions
+import de.doetchen.projects.proxytools.core.PlatformPlayer
+import de.doetchen.projects.proxytools.core.ProxyToolsCore
+import de.doetchen.projects.proxytools.core.ScheduledTask
+import de.doetchen.projects.proxytools.core.text.DurationText
 import java.util.concurrent.CopyOnWriteArrayList
 
-sealed class ToggleResult {
+internal sealed class ToggleResult {
     data class Changed(val kicked: Int) : ToggleResult()
     data object Unchanged : ToggleResult()
 }
 
-sealed class TimerResult {
+internal sealed class TimerResult {
     data class Started(val kicked: Int) : TimerResult()
     data object AlreadyRunning : TimerResult()
 }
 
-sealed class ScheduleResult {
+internal sealed class ScheduleResult {
     data object Scheduled : ScheduleResult()
     data object AlreadyScheduled : ScheduleResult()
     data object AlreadyActive : ScheduleResult()
 }
 
-class MaintenanceService(private val core: ProxyToolsCore) {
+internal class MaintenanceService(private val core: ProxyToolsCore) {
     val enabled: Boolean get() = core.store.enabled
 
     private val endTasks = CopyOnWriteArrayList<ScheduledTask>()
@@ -34,7 +39,9 @@ class MaintenanceService(private val core: ProxyToolsCore) {
         false
     }
 
-    fun kickMessage(): String = safeMessage("maintenance-kick") { core.message("maintenance-kick", "duration" to describeDuration()) + reasonText("\n", "maintenance-kick-reason") }
+    fun kickMessage(): String = safeMessage("maintenance-kick") {
+        core.message("maintenance-kick", "duration" to describeDuration()) + reasonText("\n", "maintenance-kick-reason")
+    }
 
     fun redirectMessage(): String = safeMessage("maintenance-redirect") { core.message("maintenance-redirect") + reasonSuffix() }
 

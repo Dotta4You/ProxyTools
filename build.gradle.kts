@@ -18,6 +18,8 @@ dependencies {
     implementation("org.yaml:snakeyaml:2.7")
     implementation("org.bstats:bstats-bungeecord:$bstatsVersion")
     implementation("org.bstats:bstats-velocity:$bstatsVersion")
+    implementation("com.h2database:h2:2.5.252")
+    implementation("org.mariadb.jdbc:mariadb-java-client:3.5.10")
 
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -43,11 +45,17 @@ tasks {
         archiveClassifier = ""
         archiveFileName = "${rootProject.name}-${project.version}.jar"
         exclude("META-INF/*.kotlin_module")
+        mergeServiceFiles()
+        manifest { attributes("Multi-Release" to "true") }
         relocate("kotlin", "$relocationBase.kotlin")
         relocate("org.jetbrains", "$relocationBase.jetbrains")
         relocate("org.intellij", "$relocationBase.intellij")
         relocate("org.yaml.snakeyaml", "$relocationBase.snakeyaml")
         relocate("org.bstats", "$relocationBase.bstats")
+        relocate("org.h2", "$relocationBase.h2") {
+            exclude("org/h2/res/**")
+        }
+        relocate("org.mariadb.jdbc", "$relocationBase.mariadb")
     }
 
     jar {

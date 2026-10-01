@@ -1,10 +1,10 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.config
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 
-class YamlConfig(private val values: Map<String, Any?>, private val fallback: YamlConfig? = null) {
+internal class YamlConfig(private val values: Map<String, Any?>, private val fallback: YamlConfig? = null) {
     fun get(path: String): Any? {
         var current: Any? = values
         for (key in path.split('.')) {
@@ -59,7 +59,8 @@ class YamlConfig(private val values: Map<String, Any?>, private val fallback: Ya
             val file = folder.resolve(name)
             if (Files.notExists(file)) {
                 Files.createDirectories(file.parent)
-                (YamlConfig::class.java.getResourceAsStream("/$name") ?: error("Bundled resource $name is missing")).use { Files.copy(it, file) }
+                val bundled = YamlConfig::class.java.getResourceAsStream("/$name") ?: error("Bundled resource $name is missing")
+                bundled.use { Files.copy(it, file) }
             }
             return YamlConfig(toValues(YamlFiles.read(file)), defaults)
         }

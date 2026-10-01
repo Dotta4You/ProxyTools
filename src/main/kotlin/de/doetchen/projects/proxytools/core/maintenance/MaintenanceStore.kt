@@ -1,18 +1,19 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.maintenance
 
+import de.doetchen.projects.proxytools.core.config.YamlFiles
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-data class WhitelistEntry(val uuid: UUID?, val name: String) {
+internal data class WhitelistEntry(val uuid: UUID?, val name: String) {
     val isPending: Boolean get() = uuid == null
 }
 
-enum class WhitelistAddResult { ADDED, ADDED_PENDING, ALREADY_PRESENT }
-enum class WhitelistRemoveResult { REMOVED, MISSING }
+internal enum class WhitelistAddResult { ADDED, ADDED_PENDING, ALREADY_PRESENT }
+internal enum class WhitelistRemoveResult { REMOVED, MISSING }
 
-class MaintenanceStore(private val file: Path, private val onSaveError: (String) -> Unit = {}) {
+internal class MaintenanceStore(private val file: Path, private val onSaveError: (String) -> Unit = {}) {
     @Volatile
     var enabled = false
         private set
@@ -141,7 +142,7 @@ class MaintenanceStore(private val file: Path, private val onSaveError: (String)
                 ),
             )
         } catch (e: Exception) {
-            onSaveError("Could not save data.yml: ${e.message}")
+            onSaveError("Could not save data/maintenance.yml: ${e.message}")
         }
     }
 }

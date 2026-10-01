@@ -1,9 +1,12 @@
-package de.doetchen.projects.proxytools.core
+package de.doetchen.projects.proxytools.core.motd
 
+import de.doetchen.projects.proxytools.core.ProxyToolsCore
+import de.doetchen.projects.proxytools.core.config.YamlConfig
+import de.doetchen.projects.proxytools.core.text.Text
 import java.util.UUID
 import kotlin.random.Random
 
-class PingOverride(
+internal class PingOverride(
     val description: String?,
     val maxPlayers: Int?,
     val versionName: String?,
@@ -17,7 +20,7 @@ private sealed class MaxPlayersMode {
     data class Dynamic(val headroom: Int) : MaxPlayersMode()
 }
 
-class MotdService(private val core: ProxyToolsCore) {
+internal class MotdService(private val core: ProxyToolsCore) {
     private class Template(
         val description: String?,
         val hoverLines: List<String>?,
@@ -60,7 +63,7 @@ class MotdService(private val core: ProxyToolsCore) {
         )
         val description = template.description?.let { Text.replace(it, *placeholders) }
         val hover = template.hoverLines?.map { Text.replace(it, *placeholders) }
-        val favicon = (if (maintenance) core.favicons.bytes("icon-maintenance.png") else null) ?: core.favicons.bytes("icon.png")
+        val favicon = (if (maintenance) core.favicons.bytes("maintenance.png") else null) ?: core.favicons.bytes("default.png")
 
         if (description == null && maxOverride == null && template.versionName == null && hover == null && favicon == null) return null
         return PingOverride(description, maxOverride, template.versionName, hover, favicon)
@@ -68,18 +71,19 @@ class MotdService(private val core: ProxyToolsCore) {
 
     private fun templateFor(base: String, maintenance: Boolean): Template {
         val config = core.config
-        val bucket = core.platform.now() / (config.int("$base.interval-seconds", DEFAULT_INTERVAL_SECONDS).coerceAtLeast(1) * 1000L)
+        val intervalSeconds = config.int("$base.interval-seconds", DEFAULT_INTERVAL_SECONDS).coerceAtLeast(1)
+        val bucket = core.platform.now() / (intervalSeconds * 1000L)
         cached?.let { if (it.config === config && it.base == base && it.bucket == bucket) return it.template }
 
         val enabled = config.boolean("$base.enabled", true)
         val template = Template(
             description = if (enabled) pickEntry(config, base, bucket)?.let(Text::colorize) else null,
-            hoverLines = if (enabled && config.boolean("$base.hover.enabled") && config.string("$base.hover.mode", "custom") == "custom") {
+            hoverLines = if (enabled && showsCustomHover(config, base)) {
                 config.stringList("$base.hover.lines").map(Text::colorize)
             } else {
                 null
             },
-            versionName = if (maintenance) config.string("maintenance.version-text").takeIf { it.isNotBlank() }?.let(Text::colorize) else null,
+            versionName = if (maintenance) versionText(config) else null,
             maxPlayersMode = if (enabled) maxPlayersMode(config, base) else slotsLimit(),
         )
         cached = Cached(config, base, bucket, template)
@@ -93,6 +97,12 @@ class MotdService(private val core: ProxyToolsCore) {
         val fixed = config.int("$base.max-players", -1)
         return if (fixed >= 0) MaxPlayersMode.Fixed(fixed) else slotsLimit()
     }
+
+    private fun showsCustomHover(config: YamlConfig, base: String) =
+        config.boolean("$base.hover.enabled") && config.string("$base.hover.mode", "custom") == "custom"
+
+    private fun versionText(config: YamlConfig) =
+        config.string("maintenance.version-text").takeIf { it.isNotBlank() }?.let(Text::colorize)
 
     private fun slotsLimit(): MaxPlayersMode =
         if (core.slots.enabled) MaxPlayersMode.Fixed(core.slots.limit()) else MaxPlayersMode.Unset
