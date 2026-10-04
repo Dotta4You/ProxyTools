@@ -6,6 +6,7 @@ import de.doetchen.projects.proxytools.core.Platform
 import de.doetchen.projects.proxytools.core.PlatformPlayer
 import de.doetchen.projects.proxytools.core.ProxyToolsCore
 import de.doetchen.projects.proxytools.core.ScheduledTask
+import de.doetchen.projects.proxytools.core.update.ReleaseSource
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -25,8 +26,10 @@ internal open class FakePlayer(
     override fun disconnect(message: String) {
         kickedWith = message
     }
-    override fun sendMessage(message: String) {
+    val urls = mutableListOf<String?>()
+    override fun sendMessage(message: String, openUrl: String?) {
         received += message
+        urls += openUrl
     }
     override fun redirectTo(serverName: String): Boolean {
         if (serverName !in knownServers) return false
@@ -108,11 +111,19 @@ internal class Chatter(val actor: FakeActor, val player: FakePlayer)
 internal abstract class CoreTestBase {
     protected val folder: Path = Files.createTempDirectory("proxytools-test")
     protected val platform = FakePlatform(folder)
+    protected var latestTag: String? = null
+    protected var releaseFailure: String? = null
+    protected var releaseCalls = 0
+    protected val releases = ReleaseSource {
+        releaseCalls++
+        releaseFailure?.let { error(it) }
+        latestTag
+    }
     private val cores = mutableListOf<ProxyToolsCore>()
 
     protected fun core(config: String? = null): ProxyToolsCore {
         if (config != null) Files.writeString(folder.resolve("config.yml"), config)
-        return ProxyToolsCore(platform).also { cores += it }
+        return ProxyToolsCore(platform, releases).also { cores += it }
     }
 
     protected fun admin() = FakeActor(setOf(Permissions.MAINTENANCE))

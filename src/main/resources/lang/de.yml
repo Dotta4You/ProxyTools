@@ -9,7 +9,7 @@ messages:
   maintenance-kick:
     - "&c&lWartungsmodus"
     - ""
-    - "&7Das Netzwerk befindet sich gerade in Wartung."
+    - "&7Das Netzwerk befindet sich gerade in Wartungen."
     - "&7Bitte versuche es später erneut."
 
   # wird angezeigt, wenn stattdessen zu maintenance.redirect-server verschoben wird
@@ -67,7 +67,7 @@ messages:
   usage-maintenance: "%prefix%Verwendung: &f/maintenance <on [Dauer] [Grund]|off|schedule|status>"
   usage-whitelist: "%prefix%Verwendung: &f/maintenance whitelist <add|remove|list> [Spieler]"
   usage-schedule: "%prefix%Verwendung: &f/maintenance schedule <Verzögerung> <Dauer> [Grund]|cancel"
-  usage-proxytools: "%prefix%Verwendung: &f/proxytools <info|motd|reload>"
+  usage-proxytools: "%prefix%Verwendung: &f/proxytools <info|motd|update|reload>"
   usage-broadcast: "%prefix%Verwendung: &f/broadcast <Nachricht>"
   usage-teamchat: "%prefix%Verwendung: &f/teamchat <Nachricht>"
   teamchat-disabled: "%prefix%&cDer Teamchat ist deaktiviert."
@@ -109,5 +109,15 @@ messages:
   teamchat: "&8[&cTeam&8] &7%player% &8(&7%server%&8)&7: &f%message%"
 
   info: "%prefix%ProxyTools &fv%version% &7auf &f%platform%"
+  update-available:
+    - ""
+    - "&e&l⚡ UPDATE VERFÜGBAR!"
+    - "&7Aktuelle Version: &c%current%"
+    - "&7Neueste Version: &a%latest%"
+    - "&7Download: &b%url%"
+    - ""
+  update-latest: "%prefix%ProxyTools &fv%current% &7ist aktuell."
+  update-checking: "%prefix%Suche nach Updates..."
+  update-failed: "%prefix%&cUpdates konnten nicht geprüft werden, siehe Konsole."
   reloaded: "%prefix%Konfiguration neu geladen."
   reload-failed: "%prefix%&cReload fehlgeschlagen, siehe Konsole. Die vorherige Konfiguration bleibt aktiv."

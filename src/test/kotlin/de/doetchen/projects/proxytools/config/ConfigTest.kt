@@ -50,6 +50,15 @@ internal class ConfigTest : CoreTestBase() {
     }
 
     @Test
+    fun `a config with a syntax error at startup gives one clear warning and runs on the defaults`() {
+        val core = core("info-commands: {\n    discord:\n    aliases: [dc]\n}\n")
+        assertEquals(1, platform.warnings.size, platform.warnings.toString())
+        assertTrue(platform.warnings.single().startsWith("config.yml is not valid"))
+        assertTrue(core.config.mapList("motd.entries").isNotEmpty())
+        assertTrue(Files.readString(folder.resolve("config.yml")).contains("discord"), "the broken file is left alone")
+    }
+
+    @Test
     fun `a custom language file is used and falls back to english for missing keys`() {
         Files.createDirectories(folder.resolve("lang"))
         Files.writeString(folder.resolve("lang/fr.yml"), "prefix: \"\"\nmessages:\n  reloaded: \"rechargé\"\n")

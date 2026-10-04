@@ -8,6 +8,7 @@ internal class DataLayout(private val root: Path) {
     val config: Path = root.resolve("config.yml")
     val icons: Path = root.resolve("icons")
     val maintenance: Path = root.resolve("data/maintenance.yml")
+    val whitelist: Path = root.resolve("data/whitelist.yml")
     val playersYaml: Path = root.resolve("data/players.yml")
     val playersDatabase: Path = root.resolve("data/players")
 

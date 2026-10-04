@@ -9,13 +9,9 @@ import java.nio.file.StandardCopyOption
 import java.util.Properties
 
 internal object StorageFactory {
-    private val DATABASE_NAME = Regex("[A-Za-z0-9_$-]+")
     private const val TABLE_PREFIX = "proxytools_"
-    private val HOST = Regex("[A-Za-z0-9.:_-]+|\\[[0-9A-Fa-f:.]+]")
 
-    fun signature(config: YamlConfig): String = listOf(
-        "type", "mysql.host", "mysql.port", "mysql.database", "mysql.username", "mysql.password", "mysql.use-ssl",
-    ).joinToString("|") { config.string("storage.$it") }
+    fun signature(config: YamlConfig): String = config.string("storage.type")
 
     fun create(config: YamlConfig, layout: DataLayout, platform: Platform): PlayerStorage {
         val yamlFile = layout.playersYaml
@@ -24,9 +20,8 @@ internal object StorageFactory {
             when (type) {
                 "yaml", "" -> return YamlPlayerStorage(yamlFile)
                 "h2" -> openH2(layout)
-                "mysql", "mariadb" -> openMariaDb(config)
                 else -> {
-                    platform.warn("Unknown storage.type '$type', using yaml. Available: yaml, h2, mysql")
+                    platform.warn("Unknown storage.type '$type', using yaml. Available: yaml, h2")
                     return YamlPlayerStorage(yamlFile)
                 }
             }
@@ -62,23 +57,6 @@ internal object StorageFactory {
         val url = "jdbc:h2:file:$path;DB_CLOSE_ON_EXIT=FALSE"
         return SqlPlayerStorage("H2 (players.mv.db)", TABLE_PREFIX) {
             org.h2.Driver().connect(url, Properties()) ?: error("H2 driver refused $url")
-        }
-    }
-
-    private fun openMariaDb(config: YamlConfig): SqlPlayerStorage {
-        val host = config.string("storage.mysql.host", "localhost").trim()
-        val port = config.int("storage.mysql.port", 3306)
-        val database = config.string("storage.mysql.database", "proxytools").trim()
-        require(HOST.matches(host)) { "storage.mysql.host '$host' is not a valid host name" }
-        require(DATABASE_NAME.matches(database)) { "storage.mysql.database '$database' contains unsupported characters" }
-        val sslMode = if (config.boolean("storage.mysql.use-ssl")) "trust" else "disable"
-        val url = "jdbc:mariadb://$host:$port/$database?connectTimeout=5000&socketTimeout=15000&sslMode=$sslMode"
-        val properties = Properties().apply {
-            setProperty("user", config.string("storage.mysql.username", "root"))
-            setProperty("password", config.string("storage.mysql.password"))
-        }
-        return SqlPlayerStorage("MySQL/MariaDB ($host:$port/$database)", TABLE_PREFIX) {
-            org.mariadb.jdbc.Driver().connect(url, properties) ?: error("MariaDB driver refused $url")
         }
     }
 }

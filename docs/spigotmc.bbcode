@@ -1,0 +1,88 @@
+[CENTER][SIZE=6][B]ProxyTools – The All-in-One Proxy Plugin[/B][/SIZE]
+[B]BungeeCord · Waterfall · Velocity[/B][/CENTER]
+
+ProxyTools bundles the everyday tools of a Minecraft network into one lightweight plugin for [B]BungeeCord[/B] and [B]Velocity[/B]: MOTD, maintenance mode, hub, private messages, team chat and more. One jar and every module can be switched off.
+[I]This is a proxy plugin. Install it on your BungeeCord/Velocity proxy, not on a Spigot/Paper server.[/I]
+
+[SIZE=5][B]🚀 Features[/B][/SIZE]
+[LIST]
+[*][B]Custom MOTD:[/B] Several MOTDs with colors, hex, gradients and rainbow text, hover text, custom server icon
+[*][B]Maintenance Mode:[/B] Timer, scheduling, own MOTD, UUID whitelist, survives restarts
+[*][B]Hub Command:[/B] /hub sends players to the first lobby or the one with the fewest players
+[*][B]Private Messages:[/B] /msg, /reply, /ignore, /msgtoggle and staff-only /socialspy
+[*][B]Team Chat:[/B] Network-wide staff chat with join/leave alerts
+[*][B]Broadcast & Announcements:[/B] Manual /broadcast or automatic chat messages
+[*][B]Slot Reservation:[/B] Own player limit with reserved slots for "VIPs"
+[*][B]Remember Last Server:[/B] Players rejoin where they left off
+[*][B]Own Info Commands:[/B] Create /discord, /vote & co. directly in the config
+[*][B]Multi-Language Support:[/B] English and German built in, but you can add your own
+[/LIST]
+
+[SIZE=5][B]🎮 Commands[/B][/SIZE]
+[LIST]
+[*][ICODE]/maintenance on [duration] [reason][/ICODE] – Enable maintenance, optionally timed and with a reason
+[*][ICODE]/maintenance off[/ICODE] – Disable maintenance
+[*][ICODE]/maintenance schedule <delay> <duration> [reason][/ICODE] – Schedule a maintenance window (cancel aborts it)
+[*][ICODE]/maintenance status[/ICODE] – Show the current state
+[*][ICODE]/maintenance whitelist <add|remove|list> [player|uuid][/ICODE] – Manage the whitelist
+[*][ICODE]/hub[/ICODE] (/lobby, /l) – Go to a lobby
+[*][ICODE]/msg <player> <message>[/ICODE] (/tell, /w, /whisper, /m), [ICODE]/reply <message>[/ICODE] (/r) – Private messages
+[*][ICODE]/ignore <player|list>[/ICODE] – Ignore a player
+[*][ICODE]/msgtoggle[/ICODE] (/togglemsg) – Stop all private messages
+[*][ICODE]/socialspy [on|off][/ICODE] (/spy) – See other players' private messages
+[*][ICODE]/teamchat <message>[/ICODE] (/tc) – Write to the team chat
+[*][ICODE]/broadcast <message>[/ICODE] (/bc) – Message the whole network
+[*][ICODE]/proxytools [info|motd|update|reload][/ICODE] (/pt) – Version info, MOTD preview, update check, reload
+[/LIST]
+Durations look like 10m, 1h30m or 45s.
+
+[SIZE=5][B]🔐 Permissions[/B][/SIZE]
+[LIST]
+[*][ICODE]proxytools.maintenance[/ICODE] – Use /maintenance
+[*][ICODE]proxytools.maintenance.status[/ICODE] – View the maintenance status only
+[*][ICODE]proxytools.maintenance.whitelist[/ICODE] – Manage the maintenance whitelist
+[*][ICODE]proxytools.maintenance.bypass[/ICODE] – Join during maintenance
+[*][ICODE]proxytools.broadcast[/ICODE] – Use /broadcast
+[*][ICODE]proxytools.teamchat[/ICODE] – Use and read the team chat, see team alerts
+[*][ICODE]proxytools.socialspy[/ICODE] – Use /socialspy
+[*][ICODE]proxytools.msg.bypass[/ICODE] – Private messages get through ignore and message switch
+[*][ICODE]proxytools.slots.reserved[/ICODE] – Use the reserved slots
+[*][ICODE]proxytools.slots.bypass[/ICODE] – Always join, even when the network is full
+[*][ICODE]proxytools.update[/ICODE] – Use /proxytools update and get told about new versions when joining
+[*][ICODE]proxytools.reload[/ICODE] – Use /proxytools reload
+[/LIST]
+/hub, /msg, /reply, /ignore and /msgtoggle need no permission.
+
+[SIZE=5][B]📥 Installation[/B][/SIZE]
+[LIST=1]
+[*]Put the jar into the [B]plugins[/B] folder of your proxy (not a backend server)
+[*]Restart the proxy
+[*]Edit [ICODE]plugins/ProxyTools/config.yml[/ICODE] and run [ICODE]/proxytools reload[/ICODE]
+[/LIST]
+[B]Server icon:[/B] Put a 64×64 PNG named default.png (and optionally maintenance.png) into plugins/ProxyTools/icons/.
+[B]BungeeCord + slot reservation:[/B] Set [ICODE]player_limit: -1[/ICODE] in BungeeCord's own config.yml, otherwise BungeeCord kicks players before ProxyTools can let admins through.
+[B]Requirements:[/B] BungeeCord (or Waterfall) API 1.21+ or Velocity 3.4+, Java 17+
+
+[SIZE=5][B]🗄️ Storage[/B][/SIZE]
+Last server, ignore lists and the message switch are stored in:
+[LIST]
+[*][B]yaml[/B] – A single proxy, no setup
+[*][B]h2[/B] – A single proxy with many players, no database server needed
+[/LIST]
+An existing players.yml is imported into H2 once when you switch. If the H2 file can't be opened, the plugin falls back to the YAML file and keeps working. Maintenance state and whitelist are always kept in two small YAML files.
+
+[SIZE=5][B]💬 Support[/B][/SIZE]
+[LIST]
+[*][B]Support & Issues:[/B] [URL='https://github.com/Dotta4You/ProxyTools/issues']GitHub Issues[/URL]
+[*][B]Ideas & Suggestions:[/B] [URL='https://github.com/Dotta4You/ProxyTools/discussions/categories/ideas']GitHub Discussions[/URL]
+[/LIST]
+[SIZE=5][B]🔔 Update checker[/B][/SIZE]
+The plugin checks the GitHub releases for a newer version when it starts and every 12 hours after that. A new version is announced once in the console. Players with [ICODE]proxytools.update[/ICODE] get a clickable message a moment after joining, and joining also refreshes a check that is older than an hour. [ICODE]/proxytools update[/ICODE] checks right away. Nothing is downloaded or installed, and only the version number is read. Set [ICODE]update-checker.enabled: false[/ICODE] in the config.yml to turn it off, or [ICODE]update-checker.download-url[/ICODE] to point admins to your download page instead of GitHub.
+
+
+[SIZE=5][B]📊 Metrics[/B][/SIZE]
+[LIST]
+[*]Uses [URL='https://bstats.org']bStats[/URL] for anonymous usage statistics, opt out in plugins/bStats/config.yml
+[/LIST]
+
+[CENTER]✨ Made with ❤️ by [B]Dötchen[/B][/CENTER]

@@ -19,7 +19,6 @@ dependencies {
     implementation("org.bstats:bstats-bungeecord:$bstatsVersion")
     implementation("org.bstats:bstats-velocity:$bstatsVersion")
     implementation("com.h2database:h2:2.5.252")
-    implementation("org.mariadb.jdbc:mariadb-java-client:3.5.10")
 
     testImplementation(kotlin("test"))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -55,7 +54,6 @@ tasks {
         relocate("org.h2", "$relocationBase.h2") {
             exclude("org/h2/res/**")
         }
-        relocate("org.mariadb.jdbc", "$relocationBase.mariadb")
     }
 
     jar {

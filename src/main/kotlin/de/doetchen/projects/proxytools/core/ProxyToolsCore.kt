@@ -18,9 +18,11 @@ import de.doetchen.projects.proxytools.core.player.SlotService
 import de.doetchen.projects.proxytools.core.storage.PlayerDataService
 import de.doetchen.projects.proxytools.core.storage.StorageFactory
 import de.doetchen.projects.proxytools.core.text.Text
+import de.doetchen.projects.proxytools.core.update.ReleaseSource
+import de.doetchen.projects.proxytools.core.update.UpdateService
 import java.nio.file.Files
 
-internal class ProxyToolsCore(val platform: Platform) {
+internal class ProxyToolsCore(val platform: Platform, releases: ReleaseSource) {
     private val layout = DataLayout(platform.dataFolder).also { it.prepare(platform::info, platform::warn) }
 
     @Volatile
@@ -35,7 +37,7 @@ internal class ProxyToolsCore(val platform: Platform) {
     var messages: YamlConfig = loadLanguageFile(language)
         private set
 
-    val store = MaintenanceStore(layout.maintenance, platform::warn)
+    val store = MaintenanceStore(layout.maintenance, layout.whitelist, platform::warn)
     val maintenance = MaintenanceService(this)
     val motd = MotdService(this)
     val slots = SlotService(this)
@@ -52,17 +54,20 @@ internal class ProxyToolsCore(val platform: Platform) {
     val lastServers = LastServerService(this)
     val teamAlerts = TeamAlertService(this)
     val infoCommands = InfoCommandService(this)
+    val updates = UpdateService(this, releases)
     val favicons = FaviconCache(layout.icons, platform::warn, platform::now)
     val commands = CommandHandler(this)
 
     init {
         validate(config)
-        guarded("Could not read data/maintenance.yml, starting with maintenance off") { store.load() }
+        guarded("Could not read the maintenance data, using what could be read") { store.load() }
         guarded("Could not read the saved player settings, starting without them") { playerData.load() }
+        adviseOnLargePlayerFile()
         guarded("Could not resume the maintenance timer") { maintenance.resumeTimerIfNeeded() }
         guarded("Could not resume the scheduled maintenance window") { maintenance.resumeScheduleIfNeeded() }
         warnAboutMissingServers()
         guarded("Could not start the announcements") { announcements.restart() }
+        updates.restart()
         logStartupBanner()
     }
 
@@ -77,6 +82,7 @@ internal class ProxyToolsCore(val platform: Platform) {
         validate(newConfig)
         warnAboutMissingServers()
         announcements.restart()
+        updates.restart()
         infoCommands.warnIfChanged()
         if (StorageFactory.signature(newConfig) != storageSignature) {
             platform.warn("The storage settings changed, restart the proxy to apply them.")
@@ -93,6 +99,8 @@ internal class ProxyToolsCore(val platform: Platform) {
         return Text.colorize(Text.replace(raw, "prefix" to prefix, *placeholders))
     }
 
+    val metricsEnabled: Boolean get() = config.boolean("bstats", true)
+
     val metricCharts: Map<String, () -> String> = mapOf(
         "language" to { language },
         "maintenance_enabled" to { if (maintenance.enabled) "enabled" else "disabled" },
@@ -103,6 +111,11 @@ internal class ProxyToolsCore(val platform: Platform) {
 
     fun userMessage(key: String, userText: String, vararg placeholders: Pair<String, String>): String =
         message(key, "message" to USER_TEXT_MARK, *placeholders).replace(USER_TEXT_MARK, userText.replace('§', ' '))
+
+    fun playerJoined(player: PlatformPlayer) {
+        maintenance.notifyBypass(player)
+        updates.notifyAdmin(player)
+    }
 
     fun playerLeft(player: PlatformPlayer) {
         teamAlerts.left(player)
@@ -155,7 +168,12 @@ internal class ProxyToolsCore(val platform: Platform) {
         platform.info(rule)
     }
 
-    private fun validate(config: YamlConfig) = ConfigValidator.check(config).forEach { platform.warn("config.yml: $it") }
+    private fun validate(config: YamlConfig) {
+        ConfigValidator.check(config).forEach { platform.warn("config.yml: $it") }
+        commands.specs().flatMap { listOf(it.name) + it.aliases }.groupingBy { it }.eachCount()
+            .filterValues { it > 1 }.keys
+            .forEach { platform.warn("config.yml: the command /$it is defined more than once, the later definition wins") }
+    }
 
     private fun warnAboutMissingServers() {
         if (hub.enabled && hub.target() == null) {
@@ -166,6 +184,11 @@ internal class ProxyToolsCore(val platform: Platform) {
         if (!platform.hasServer(target)) {
             platform.warn("maintenance.redirect-server '$target' is not a registered server, players will be kicked instead.")
         }
+    }
+
+    private fun adviseOnLargePlayerFile() {
+        if (playerData.lazy || playerData.size < LARGE_PLAYER_FILE) return
+        platform.info("data/players.yml holds ${playerData.size} players. Consider storage.type: h2 in the config for faster saving.")
     }
 
     private fun migrateConfig() = guarded("Could not migrate config.yml, loading it as-is") {
@@ -183,7 +206,7 @@ internal class ProxyToolsCore(val platform: Platform) {
     private fun loadOrDefaults(name: String): YamlConfig = try {
         YamlConfig.load(platform.dataFolder, name)
     } catch (e: Exception) {
-        platform.warn("Could not load $name, using built-in defaults: ${e.message}")
+        platform.warn("$name is not valid, the built-in defaults are used until you fix it: ${e.message}")
         YamlConfig.bundled(name)
     }
 
@@ -205,6 +228,7 @@ internal class ProxyToolsCore(val platform: Platform) {
     }
 
     companion object {
+        private const val LARGE_PLAYER_FILE = 10_000
         private const val USER_TEXT_MARK = "\u0001"
         private const val BUILT_IN_LANGUAGES = "en, de"
         private val LANGUAGE_CODE = Regex("[a-z0-9_-]+")

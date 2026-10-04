@@ -154,7 +154,7 @@ internal class MessageTest : CoreTestBase() {
         assertTrue(bob.actor.messages.last().contains("Alice"))
 
         core.shutdown()
-        val restarted = ProxyToolsCore(platform)
+        val restarted = ProxyToolsCore(platform, releases)
         restarted.commands.msg(alice.actor, listOf("Bob", "hello again"))
         assertTrue(bob.player.received.isEmpty(), "the ignore list is restored")
 

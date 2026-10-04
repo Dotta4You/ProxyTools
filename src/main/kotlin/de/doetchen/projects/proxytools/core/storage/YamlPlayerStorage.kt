@@ -16,7 +16,7 @@ internal class YamlPlayerStorage(private val file: Path) : PlayerStorage {
     override fun loadAll(): Map<UUID, PlayerRecord> {
         known.clear()
         if (Files.exists(file)) {
-            val players = YamlFiles.read(file)?.get("players") as? Map<*, *> ?: return emptyMap()
+            val players = YamlFiles.readOrQuarantine(file)?.get("players") as? Map<*, *> ?: return emptyMap()
             players.forEach { (key, value) ->
                 val id = runCatching { UUID.fromString(key.toString()) }.getOrNull() ?: return@forEach
                 val data = value as? Map<*, *> ?: return@forEach

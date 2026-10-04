@@ -23,7 +23,7 @@ internal class LastServerTest : CoreTestBase() {
         assertEquals("survival", core.lastServers.target(id))
 
         platform.advance(5_000)
-        assertEquals("survival", ProxyToolsCore(platform).lastServers.target(id))
+        assertEquals("survival", ProxyToolsCore(platform, releases).lastServers.target(id))
 
         platform.servers -= "survival"
         assertNull(core.lastServers.target(id), "a server that no longer exists is ignored")

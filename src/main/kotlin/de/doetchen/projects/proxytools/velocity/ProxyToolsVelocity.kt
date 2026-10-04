@@ -29,6 +29,7 @@ import de.doetchen.projects.proxytools.core.ScheduledTask
 import de.doetchen.projects.proxytools.core.command.CommandSpec
 import de.doetchen.projects.proxytools.core.motd.FaviconConverter
 import de.doetchen.projects.proxytools.core.motd.MotdService
+import de.doetchen.projects.proxytools.core.update.GitHubReleases
 import net.kyori.adventure.text.Component
 import net.kyori.adventure.text.event.ClickEvent
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer
@@ -58,12 +59,14 @@ class ProxyToolsVelocity @Inject constructor(
             val version = server.pluginManager.getPlugin("proxytools")
                 .flatMap { it.description.version }
                 .orElse("unknown")
-            core = ProxyToolsCore(VelocityPlatform(server, logger, dataDirectory, version, this))
+            core = ProxyToolsCore(VelocityPlatform(server, logger, dataDirectory, version, this), GitHubReleases)
 
             server.eventManager.register(this, VelocityListener(core, server))
             core.commands.specs().forEach(::register)
-            val metrics = metricsFactory.make(this, BSTATS_PLUGIN_ID)
-            core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
+            if (core.metricsEnabled) {
+                val metrics = metricsFactory.make(this, BSTATS_PLUGIN_ID)
+                core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
+            }
         } catch (e: Exception) {
             logger.error("ProxyTools failed to start, disabling", e)
             server.eventManager.unregisterListeners(this)
@@ -86,7 +89,10 @@ class ProxyToolsVelocity @Inject constructor(
 
 private val LEGACY = LegacyComponentSerializer.legacySection()
 
-private fun component(legacyText: String): Component = LEGACY.deserialize(legacyText)
+private fun component(legacyText: String, openUrl: String? = null): Component {
+    val text = LEGACY.deserialize(legacyText)
+    return if (openUrl != null) text.clickEvent(ClickEvent.openUrl(openUrl)) else text
+}
 
 private class VelocityPlatform(
     private val server: ProxyServer,
@@ -123,7 +129,7 @@ private class VelocityPlayer(private val player: Player, private val server: Pro
 
     override fun hasPermission(permission: String) = player.hasPermission(permission)
     override fun disconnect(message: String) = player.disconnect(component(message))
-    override fun sendMessage(message: String) = player.sendMessage(component(message))
+    override fun sendMessage(message: String, openUrl: String?) = player.sendMessage(component(message, openUrl))
 
     override fun redirectTo(serverName: String): Boolean {
         val target = server.getServer(serverName).orElse(null) ?: return false
@@ -145,10 +151,7 @@ private class VelocityActor(private val source: CommandSource, private val serve
     }
 
     override fun hasPermission(permission: String) = source.hasPermission(permission)
-    override fun sendMessage(message: String, openUrl: String?) {
-        val text = component(message)
-        source.sendMessage(if (openUrl != null) text.clickEvent(ClickEvent.openUrl(openUrl)) else text)
-    }
+    override fun sendMessage(message: String, openUrl: String?) = source.sendMessage(component(message, openUrl))
 }
 
 private class VelocityCommand(private val server: ProxyServer, private val spec: CommandSpec) : SimpleCommand {
@@ -212,7 +215,7 @@ internal class VelocityListener(private val core: ProxyToolsCore, private val se
 
     @Subscribe
     fun onServerPostConnect(event: ServerPostConnectEvent) {
-        if (event.previousServer == null) core.maintenance.notifyBypass(VelocityPlayer(event.player, server))
+        if (event.previousServer == null) core.playerJoined(VelocityPlayer(event.player, server))
         event.player.currentServer.ifPresent { core.lastServers.record(event.player.uniqueId, it.serverInfo.name) }
     }
 

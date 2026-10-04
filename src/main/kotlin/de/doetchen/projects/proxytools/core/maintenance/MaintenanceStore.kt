@@ -13,7 +13,11 @@ internal data class WhitelistEntry(val uuid: UUID?, val name: String) {
 internal enum class WhitelistAddResult { ADDED, ADDED_PENDING, ALREADY_PRESENT }
 internal enum class WhitelistRemoveResult { REMOVED, MISSING }
 
-internal class MaintenanceStore(private val file: Path, private val onSaveError: (String) -> Unit = {}) {
+internal class MaintenanceStore(
+    private val stateFile: Path,
+    private val whitelistFile: Path,
+    private val onSaveError: (String) -> Unit = {},
+) {
     @Volatile
     var enabled = false
         private set
@@ -43,45 +47,70 @@ internal class MaintenanceStore(private val file: Path, private val onSaveError:
     private val pending = ConcurrentHashMap<String, String>()
 
     fun load() {
-        if (Files.notExists(file)) return
-        val root = YamlFiles.read(file) ?: return
+        val problems = mutableListOf<String>()
+        try {
+            loadState()
+        } catch (e: Exception) {
+            problems += e.message.orEmpty()
+        }
+        try {
+            loadWhitelist()
+        } catch (e: Exception) {
+            problems += e.message.orEmpty()
+        }
+        if (problems.isNotEmpty()) throw IllegalStateException(problems.joinToString(" "))
+    }
+
+    private fun loadState() {
+        if (Files.notExists(stateFile)) return
+        val root = YamlFiles.readOrQuarantine(stateFile) ?: return
         enabled = root["maintenance"] as? Boolean ?: false
         maintenanceUntil = (root["maintenance-until"] as? Number)?.toLong()
         scheduledStart = (root["schedule-start"] as? Number)?.toLong()
         scheduledDuration = (root["schedule-duration"] as? Number)?.toLong()
         maintenanceReason = root["maintenance-reason"] as? String
         scheduledReason = root["schedule-reason"] as? String
+    }
+
+    private fun loadWhitelist() {
+        val fromLegacyFile = Files.notExists(whitelistFile)
+        val source = if (fromLegacyFile) {
+            runCatching { YamlFiles.read(stateFile) }.getOrNull()
+        } else {
+            YamlFiles.readOrQuarantine(whitelistFile)
+        } ?: return
 
         resolved.clear()
-        (root["whitelist-resolved"] as? Map<*, *>)?.forEach { (key, value) ->
+        (source["whitelist-resolved"] as? Map<*, *>)?.forEach { (key, value) ->
             runCatching { UUID.fromString(key.toString()) }.getOrNull()?.let { resolved[it] = value.toString() }
         }
         pending.clear()
-        (root["whitelist-pending"] as? List<*>)?.forEach { entry -> entry?.toString()?.let { pending[normalize(it)] = it } }
+        (source["whitelist-pending"] as? List<*>)?.forEach { entry -> entry?.toString()?.let { pending[normalize(it)] = it } }
+        if (fromLegacyFile && (resolved.isNotEmpty() || pending.isNotEmpty())) saveWhitelist()
     }
 
     fun setEnabled(value: Boolean, reason: String? = null) {
         enabled = value
         maintenanceReason = reason
-        save()
+        saveState()
     }
 
     fun setMaintenanceUntil(value: Long?) {
         maintenanceUntil = value
-        save()
+        saveState()
     }
 
     fun setSchedule(start: Long?, durationMillis: Long?, reason: String? = null) {
         scheduledStart = start
         scheduledDuration = durationMillis
         scheduledReason = reason
-        save()
+        saveState()
     }
 
     fun addResolved(uuid: UUID, name: String): WhitelistAddResult {
         pending.remove(normalize(name))
         if (resolved.putIfAbsent(uuid, name) != null) return WhitelistAddResult.ALREADY_PRESENT
-        save()
+        saveWhitelist()
         return WhitelistAddResult.ADDED
     }
 
@@ -89,7 +118,7 @@ internal class MaintenanceStore(private val file: Path, private val onSaveError:
         if (resolved.values.any { it.equals(name, ignoreCase = true) } || pending.putIfAbsent(normalize(name), name) != null) {
             return WhitelistAddResult.ALREADY_PRESENT
         }
-        save()
+        saveWhitelist()
         return WhitelistAddResult.ADDED_PENDING
     }
 
@@ -99,7 +128,7 @@ internal class MaintenanceStore(private val file: Path, private val onSaveError:
             pending.remove(normalize(identifier)) != null ||
             resolved.entries.firstOrNull { it.value.equals(identifier, ignoreCase = true) }?.let { resolved.remove(it.key) } != null
         if (!removed) return WhitelistRemoveResult.MISSING
-        save()
+        saveWhitelist()
         return WhitelistRemoveResult.REMOVED
     }
 
@@ -112,12 +141,12 @@ internal class MaintenanceStore(private val file: Path, private val onSaveError:
     fun onPlayerSeen(uuid: UUID, name: String): Boolean {
         if (pending.remove(normalize(name)) != null) {
             resolved[uuid] = name
-            save()
+            saveWhitelist()
             return true
         }
         if (resolved.containsKey(uuid) && resolved[uuid] != name) {
             resolved[uuid] = name
-            save()
+            saveWhitelist()
         }
         return false
     }
@@ -125,24 +154,33 @@ internal class MaintenanceStore(private val file: Path, private val onSaveError:
     private fun normalize(entry: String) = entry.trim().lowercase()
 
     @Synchronized
-    private fun save() {
+    private fun saveState() = write(
+        stateFile,
+        linkedMapOf(
+            "maintenance" to enabled,
+            "maintenance-reason" to maintenanceReason,
+            "maintenance-until" to maintenanceUntil,
+            "schedule-start" to scheduledStart,
+            "schedule-duration" to scheduledDuration,
+            "schedule-reason" to scheduledReason,
+        ),
+    )
+
+    @Synchronized
+    private fun saveWhitelist() = write(
+        whitelistFile,
+        linkedMapOf(
+            "whitelist-resolved" to resolved.entries.associate { it.key.toString() to it.value },
+            "whitelist-pending" to pending.values.sorted(),
+        ),
+    )
+
+    private fun write(file: Path, data: Map<String, Any?>) {
         try {
             Files.createDirectories(file.parent)
-            YamlFiles.write(
-                file,
-                linkedMapOf(
-                    "maintenance" to enabled,
-                    "maintenance-reason" to maintenanceReason,
-                    "maintenance-until" to maintenanceUntil,
-                    "schedule-start" to scheduledStart,
-                    "schedule-duration" to scheduledDuration,
-                    "schedule-reason" to scheduledReason,
-                    "whitelist-resolved" to resolved.entries.associate { it.key.toString() to it.value },
-                    "whitelist-pending" to pending.values.sorted(),
-                ),
-            )
+            YamlFiles.write(file, data)
         } catch (e: Exception) {
-            onSaveError("Could not save data/maintenance.yml: ${e.message}")
+            onSaveError("Could not save ${file.fileName}: ${e.message}")
         }
     }
 }

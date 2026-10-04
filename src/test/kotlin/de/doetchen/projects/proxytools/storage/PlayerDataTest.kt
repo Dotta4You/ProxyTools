@@ -1,6 +1,8 @@
 package de.doetchen.projects.proxytools.storage
 
+import de.doetchen.projects.proxytools.core.storage.PlayerRecord
 import de.doetchen.projects.proxytools.core.storage.SqlPlayerStorage
+import de.doetchen.projects.proxytools.core.storage.YamlPlayerStorage
 import de.doetchen.projects.proxytools.testing.CoreTestBase
 import java.nio.file.Files
 import java.sql.SQLException
@@ -49,5 +51,39 @@ internal class PlayerDataTest : CoreTestBase() {
         down = false
         assertNull(backend.load(UUID.randomUUID()))
         assertEquals(2, attempts)
+    }
+
+    @Test
+    fun `a damaged players file is set aside instead of being overwritten`() {
+        Files.createDirectories(folder.resolve("data"))
+        Files.writeString(folder.resolve("data/players.yml"), "players: {broken\n")
+
+        val core = core()
+        val id = UUID.randomUUID()
+        core.playerData.setLastServer(id, "survival")
+        platform.advance(5_000)
+
+        assertTrue(platform.warnings.any { it.contains("players.yml") && it.contains("renamed") })
+        assertEquals("players: {broken\n", Files.readString(folder.resolve("data/players.yml.broken")))
+        assertTrue(Files.readString(folder.resolve("data/players.yml")).contains("survival"))
+    }
+
+    @Test
+    fun `a large players file suggests the h2 storage once`() {
+        val many = (1..10_000).associate { UUID.randomUUID() to PlayerRecord("survival", false, emptyMap()) }
+        YamlPlayerStorage(folder.resolve("data/players.yml")).save(many)
+
+        core()
+
+        assertTrue(platform.loggedInfo.any { it.contains("10000 players") && it.contains("storage.type: h2") })
+    }
+
+    @Test
+    fun `a small players file gets no advice`() {
+        YamlPlayerStorage(folder.resolve("data/players.yml")).save(mapOf(UUID.randomUUID() to PlayerRecord("survival", false, emptyMap())))
+
+        core()
+
+        assertTrue(platform.loggedInfo.none { it.contains("storage.type") })
     }
 }

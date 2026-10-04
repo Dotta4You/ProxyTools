@@ -134,7 +134,7 @@ internal class MaintenanceTest : CoreTestBase() {
             override val name = "Broken"
             override fun hasPermission(permission: String): Boolean = error("boom")
             override fun disconnect(message: String) = Unit
-            override fun sendMessage(message: String) = Unit
+            override fun sendMessage(message: String, openUrl: String?) = Unit
             override fun redirectTo(serverName: String) = false
         }
         assertFalse(core.maintenance.canBypass(broken))
@@ -196,7 +196,7 @@ internal class MaintenanceTest : CoreTestBase() {
         core.maintenance.scheduleStart(60_000, 30_000, "Backup")
         platform.advance(60_000)
         assertEquals("Backup", core.store.maintenanceReason)
-        assertEquals("Backup", ProxyToolsCore(platform).store.maintenanceReason)
+        assertEquals("Backup", ProxyToolsCore(platform, releases).store.maintenanceReason)
     }
 
     @Test
@@ -236,5 +236,20 @@ internal class MaintenanceTest : CoreTestBase() {
         Files.writeString(folder.resolve("config.yml"), "maintenance:\n  redirect-server: lobby\n")
         core.reload()
         assertTrue(platform.warnings.none { it.contains("redirect-server") })
+    }
+
+    @Test
+    fun `a damaged maintenance file is set aside instead of being overwritten`() {
+        Files.createDirectories(folder.resolve("data"))
+        Files.writeString(folder.resolve("data/maintenance.yml"), "whitelist-resolved: [this is: not valid\n")
+
+        val core = core()
+
+        assertTrue(platform.warnings.any { it.contains("maintenance.yml") && it.contains("renamed") })
+        assertFalse(core.maintenance.enabled)
+        assertTrue(Files.exists(folder.resolve("data/maintenance.yml.broken")))
+        core.maintenance.setEnabled(true)
+        assertTrue(Files.readString(folder.resolve("data/maintenance.yml.broken")).contains("this is: not valid"))
+        assertTrue(Files.readString(folder.resolve("data/maintenance.yml")).contains("maintenance: true"))
     }
 }

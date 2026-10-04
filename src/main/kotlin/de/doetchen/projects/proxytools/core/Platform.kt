@@ -42,7 +42,7 @@ internal interface PlatformPlayer {
 
     fun disconnect(message: String)
 
-    fun sendMessage(message: String)
+    fun sendMessage(message: String, openUrl: String? = null)
 
     fun redirectTo(serverName: String): Boolean
 }

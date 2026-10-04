@@ -23,6 +23,7 @@ internal class PlayerDataService(
 
     val storageName: String get() = storage.name
     val lazy: Boolean get() = storage.lazy
+    val size: Int get() = entries.size
 
     private val entries = ConcurrentHashMap<UUID, Entry>()
     private val dirty = ConcurrentHashMap.newKeySet<UUID>()

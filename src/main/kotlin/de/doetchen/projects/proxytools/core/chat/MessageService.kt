@@ -45,6 +45,7 @@ internal class MessageService(private val core: ProxyToolsCore) {
 
     fun forget(id: UUID) {
         partners.remove(id)
+        spies -= id
     }
 
     fun setSpy(id: UUID, enable: Boolean?): Boolean {

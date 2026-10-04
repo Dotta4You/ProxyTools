@@ -1,10 +1,12 @@
 package de.doetchen.projects.proxytools.maintenance
 
 import de.doetchen.projects.proxytools.core.Permissions
+import de.doetchen.projects.proxytools.core.ProxyToolsCore
 import de.doetchen.projects.proxytools.core.maintenance.WhitelistAddResult
 import de.doetchen.projects.proxytools.testing.CoreTestBase
 import de.doetchen.projects.proxytools.testing.FakeActor
 import de.doetchen.projects.proxytools.testing.FakePlayer
+import java.nio.file.Files
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -101,5 +103,47 @@ internal class WhitelistTest : CoreTestBase() {
         core.store.addResolved(uuid, "Alice")
         assertEquals(WhitelistAddResult.ALREADY_PRESENT, core.store.addResolved(uuid, "?"))
         assertEquals("Alice", core.store.entries().single().name)
+    }
+
+    @Test
+    fun `the whitelist is kept in its own file, apart from the maintenance state`() {
+        val core = core()
+        core.commands.maintenance(FakeActor(setOf(Permissions.MAINTENANCE_WHITELIST)), listOf("whitelist", "add", "Alice"))
+        core.maintenance.setEnabled(true)
+
+        val whitelist = Files.readString(folder.resolve("data/whitelist.yml"))
+        val state = Files.readString(folder.resolve("data/maintenance.yml"))
+        assertTrue(whitelist.contains("Alice") && !whitelist.contains("maintenance:"))
+        assertTrue(state.contains("maintenance: true") && !state.contains("Alice"))
+    }
+
+    @Test
+    fun `a damaged whitelist file does not take the maintenance state with it`() {
+        Files.createDirectories(folder.resolve("data"))
+        Files.writeString(folder.resolve("data/maintenance.yml"), "maintenance: true\n")
+        Files.writeString(folder.resolve("data/whitelist.yml"), "whitelist-pending: [oops\n")
+
+        val core = core()
+
+        assertTrue(core.maintenance.enabled)
+        assertTrue(platform.warnings.any { it.contains("whitelist.yml") && it.contains("renamed") })
+        assertTrue(Files.exists(folder.resolve("data/whitelist.yml.broken")))
+    }
+
+    @Test
+    fun `a whitelist from the older combined file moves into its own file`() {
+        Files.createDirectories(folder.resolve("data"))
+        Files.writeString(
+            folder.resolve("data/maintenance.yml"),
+            "maintenance: true\nwhitelist-pending:\n  - Alice\nwhitelist-resolved:\n  ${UUID.randomUUID()}: Bob\n",
+        )
+
+        val core = core()
+
+        assertEquals(listOf("Bob", "Alice"), core.store.entries().map { it.name })
+        assertTrue(Files.readString(folder.resolve("data/whitelist.yml")).contains("Alice"))
+        core.maintenance.setEnabled(false)
+        assertTrue(!Files.readString(folder.resolve("data/maintenance.yml")).contains("whitelist"))
+        assertEquals(2, ProxyToolsCore(platform, releases).store.entries().size)
     }
 }

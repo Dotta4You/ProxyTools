@@ -1,5 +1,6 @@
 package de.doetchen.projects.proxytools.motd
 
+import de.doetchen.projects.proxytools.core.Permissions
 import de.doetchen.projects.proxytools.testing.CoreTestBase
 import de.doetchen.projects.proxytools.testing.FakeActor
 import java.nio.file.Files
@@ -96,9 +97,16 @@ internal class MotdTest : CoreTestBase() {
     @Test
     fun `motd preview command shows the active entry, or says nothing is active`() {
         val core = core("motd:\n  entries:\n    - line1: 'Hello world'\n")
-        val actor = FakeActor()
+        val denied = FakeActor()
+        core.commands.proxyTools(denied, listOf("motd"))
+        assertTrue(denied.messages.single().contains("permission"))
+        assertFalse(denied.messages.single().contains("Hello world"))
+        assertEquals(listOf("info"), core.commands.suggestProxyTools(denied, listOf("")))
+
+        val actor = FakeActor(setOf(Permissions.MOTD))
         core.commands.proxyTools(actor, listOf("motd"))
         assertTrue(actor.messages.single().contains("Hello world"))
+        assertEquals(listOf("info", "motd"), core.commands.suggestProxyTools(actor, listOf("")))
 
         Files.writeString(folder.resolve("config.yml"), "motd:\n  enabled: false\n")
         core.reload()

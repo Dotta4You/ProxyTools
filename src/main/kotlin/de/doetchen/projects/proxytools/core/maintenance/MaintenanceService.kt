@@ -205,7 +205,6 @@ internal class MaintenanceService(private val core: ProxyToolsCore) {
         tasks.clear()
     }
 
-    // TODO: show the timer/schedule countdown as an actionbar or bossbar instead of chat broadcasts
     private fun broadcastWarning(secondsLeft: Long) {
         if (!enabled) return
         core.broadcast(core.message("timer-warning", "time" to DurationText.format(secondsLeft)))

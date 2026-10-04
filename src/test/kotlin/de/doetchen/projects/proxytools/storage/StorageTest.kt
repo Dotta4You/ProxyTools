@@ -77,13 +77,6 @@ internal class StorageTest : CoreTestBase() {
     }
 
     @Test
-    fun `sql storage works with the MySQL compatibility mode`() {
-        val storage = h2Memory("sql2", ";MODE=MySQL")
-        storage.save(mapOf(id to PlayerRecord("lobby", false, emptyMap())))
-        assertEquals("lobby", storage.load(id)!!.lastServer)
-    }
-
-    @Test
     fun `sql storage rejects a table prefix that could break the statements`() {
         assertFailsWith<IllegalArgumentException> {
             SqlPlayerStorage("x", "a; DROP TABLE b;--") { error("never connects") }
@@ -136,21 +129,25 @@ internal class StorageTest : CoreTestBase() {
     }
 
     @Test
-    fun `an unreachable mysql server falls back to the yaml file instead of breaking`() {
-        val core = core("storage:\n  type: mysql\n  mysql:\n    host: 127.0.0.1\n    port: 1\n")
-        assertTrue(platform.warnings.any { it.contains("Could not open the 'mysql' storage") })
+    fun `an h2 file that cannot be opened falls back to the yaml file instead of breaking`() {
+        Files.createDirectories(folder.resolve("data/players.mv.db"))
+        val core = core("storage:\n  type: h2\n")
+        assertTrue(platform.warnings.any { it.contains("Could not open the 'h2' storage") })
         core.playerData.setLastServer(id, "survival")
         platform.advance(5_000)
         assertTrue(Files.readString(folder.resolve("data/players.yml")).contains("survival"))
     }
 
     @Test
-    fun `invalid storage settings fall back with a warning`() {
+    fun `an unknown storage type falls back to yaml with a warning`() {
         core("storage:\n  type: nonsense\n")
         assertTrue(platform.warnings.any { it.contains("Unknown storage.type 'nonsense'") })
-        platform.warnings.clear()
-        core("storage:\n  type: mysql\n  mysql:\n    database: 'bad name;'\n")
-        assertTrue(platform.warnings.any { it.contains("unsupported characters") })
+    }
+
+    @Test
+    fun `a leftover mysql setting from an older config is reported and ignored`() {
+        core("storage:\n  type: mysql\n")
+        assertTrue(platform.warnings.any { it.contains("Unknown storage.type 'mysql'") && it.contains("yaml, h2") })
     }
 
     @Test
@@ -244,7 +241,7 @@ internal class StorageTest : CoreTestBase() {
         assertTrue(Files.readString(folder.resolve("data/players.yml")).contains("survival"))
 
         core.shutdown()
-        val restarted = ProxyToolsCore(platform)
+        val restarted = ProxyToolsCore(platform, releases)
         assertEquals("survival", restarted.playerData.lastServer(id))
     }
 }

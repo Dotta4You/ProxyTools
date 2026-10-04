@@ -1,23 +1,18 @@
 # ProxyTools - reload with /proxytools reload or (recommended) do a proxy restart.
 # Text: &a, &#RRGGBB, <gradient:#RRGGBB:#RRGGBB>..</gradient>, <rainbow>..</rainbow>
-
 config-version: 1 # do not change
 language: en # en, de or your own lang/<code>.yml
 
-# --- Storage (change needs a restart) ---
+bstats: true # anonymous usage statistics (bstats.org), change needs a restart
+update-checker: # tells admins with proxytools.update about new releases (GitHub)
+  enabled: true
+  download-url: "" # link shown to admins, empty = the GitHub release page
 
+# --- Storage (change needs a restart) ---
 storage:
-  type: yaml # yaml, h2 (file) or mysql (also MariaDB)
-  mysql:
-    host: localhost
-    port: 3306
-    database: proxytools
-    username: root
-    password: ""
-    use-ssl: false # encrypted, certificate not verified
+  type: yaml # yaml or h2 (h2 is better for larger proxys)
 
 # --- Server list ---
-
 # icons/default.png and icons/maintenance.png set the server icon
 motd:
   enabled: true
@@ -40,7 +35,6 @@ motd:
       - "&7%online%/%max% players online"
 
 # --- Maintenance ---
-
 maintenance:
   kick-on-enable: true
   redirect-server: "" # send players here instead of kicking, empty = kick
@@ -64,7 +58,6 @@ maintenance:
         - "&7The network is currently closed."
 
 # --- Players ---
-
 slots: # own player limit (BungeeCord: set player_limit to -1 there (BungeeConfig)
   enabled: false
   max-players: 100
@@ -80,7 +73,6 @@ remember-last-server: # join where the player left off
   exclude: [] # never remembered, e.g. an auth or limbo server
 
 # --- Chat ---
-
 msg: # /msg, /reply, /ignore, /msgtoggle & /socialspy
   enabled: true
 
@@ -100,10 +92,12 @@ announcements:
       - "&7shown one below the other"
 
 # --- Extras ---
-
-info-commands: {} # own commands, new ones need a proxy restart. Example:
-#  discord:
-#    aliases: [dc]
-#    text: ["&9Discord: &bdiscord.example.com"]
-#    url: https://discord.example.com # optional, makes it clickable
-#    permission: "" # optional
+# Own commands, new ones need a proxy restart.
+# To use one: delete the line "info-commands: {}" below and remove the # from these lines.
+# info-commands:
+#   discord:
+#     aliases: [dc]
+#     text: ["&9Discord: &bdiscord.example.com"]
+#     url: https://discord.example.com # optional, makes it clickable
+#     permission: "" # optional
+info-commands: {}

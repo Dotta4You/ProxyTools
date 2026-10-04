@@ -10,6 +10,7 @@ import de.doetchen.projects.proxytools.core.maintenance.WhitelistAddResult
 import de.doetchen.projects.proxytools.core.maintenance.WhitelistRemoveResult
 import de.doetchen.projects.proxytools.core.text.DurationText
 import de.doetchen.projects.proxytools.core.text.Text
+import de.doetchen.projects.proxytools.core.update.UpdateService
 import java.util.UUID
 
 internal class CommandSpec(
@@ -94,10 +95,24 @@ internal class CommandHandler(private val core: ProxyToolsCore) {
                 "version" to core.platform.pluginVersion,
                 "platform" to core.platform.platformName,
             )
-            "motd" -> core.motd.preview()?.let { actor.reply("motd-preview", "text" to it) } ?: actor.reply("motd-preview-empty")
+            "motd" -> {
+                if (!actor.hasPermission(Permissions.MOTD)) return actor.reply("no-permission")
+                core.motd.preview()?.let { actor.reply("motd-preview", "text" to it) } ?: actor.reply("motd-preview-empty")
+            }
             "reload" -> {
                 if (!actor.hasPermission(Permissions.RELOAD)) return actor.reply("no-permission")
                 actor.reply(if (core.reload()) "reloaded" else "reload-failed")
+            }
+            "update" -> {
+                if (!actor.hasPermission(Permissions.UPDATE)) return actor.reply("no-permission")
+                actor.reply("update-checking")
+                core.updates.checkNow { outcome ->
+                    when (outcome) {
+                        is UpdateService.Outcome.Available -> actor.sendMessage(core.updates.message(outcome.release), core.updates.downloadUrl(outcome.release))
+                        UpdateService.Outcome.UpToDate -> actor.reply("update-latest", "current" to core.platform.pluginVersion)
+                        is UpdateService.Outcome.Failed -> actor.reply("update-failed")
+                    }
+                }
             }
             else -> actor.reply("usage-proxytools")
         }
@@ -107,8 +122,9 @@ internal class CommandHandler(private val core: ProxyToolsCore) {
         if (args.size > 1) return emptyList()
         val options = buildList {
             add("info")
-            add("motd")
+            if (actor.hasPermission(Permissions.MOTD)) add("motd")
             if (actor.hasPermission(Permissions.RELOAD)) add("reload")
+            if (actor.hasPermission(Permissions.UPDATE)) add("update")
         }
         return options.filter { it.startsWith(args.firstOrNull().orEmpty(), ignoreCase = true) }
     }

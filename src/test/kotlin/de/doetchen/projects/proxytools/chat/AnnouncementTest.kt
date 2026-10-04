@@ -60,12 +60,12 @@ internal class AnnouncementTest : CoreTestBase() {
             folder.resolve("config.yml"),
             "announcements:\n  enabled: true\n  interval-seconds: 10\n  prefix: ''\n  messages: ['one', 'two']\n",
         )
-        val core = ProxyToolsCore(platform)
+        val core = ProxyToolsCore(platform, releases)
         var failures = 1
         val flaky = object : FakePlayer("Flaky") {
-            override fun sendMessage(message: String) {
+            override fun sendMessage(message: String, openUrl: String?) {
                 if (failures-- > 0) error("connection reset")
-                super.sendMessage(message)
+                super.sendMessage(message, openUrl)
             }
         }
         platform.players += flaky

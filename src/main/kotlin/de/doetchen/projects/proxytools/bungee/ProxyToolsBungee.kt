@@ -8,6 +8,7 @@ import de.doetchen.projects.proxytools.core.ScheduledTask
 import de.doetchen.projects.proxytools.core.command.CommandSpec
 import de.doetchen.projects.proxytools.core.motd.FaviconConverter
 import de.doetchen.projects.proxytools.core.motd.MotdService
+import de.doetchen.projects.proxytools.core.update.GitHubReleases
 import net.md_5.bungee.api.CommandSender
 import net.md_5.bungee.api.Favicon
 import net.md_5.bungee.api.ProxyServer
@@ -43,11 +44,13 @@ class ProxyToolsBungee : Plugin() {
 
     override fun onEnable() {
         try {
-            core = ProxyToolsCore(BungeePlatform(this))
+            core = ProxyToolsCore(BungeePlatform(this), GitHubReleases)
             proxy.pluginManager.registerListener(this, BungeeListener(core, this))
             core.commands.specs().forEach { proxy.pluginManager.registerCommand(this, BungeeCommand(it)) }
-            val metrics = Metrics(this, BSTATS_PLUGIN_ID)
-            core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
+            if (core.metricsEnabled) {
+                val metrics = Metrics(this, BSTATS_PLUGIN_ID)
+                core.metricCharts.forEach { (id, value) -> metrics.addCustomChart(SimplePie(id, value)) }
+            }
         } catch (e: Exception) {
             logger.severe("ProxyTools failed to start, disabling: ${e.message}")
             proxy.pluginManager.unregisterCommands(this)
@@ -61,7 +64,14 @@ class ProxyToolsBungee : Plugin() {
 }
 
 @Suppress("DEPRECATION")
-private fun legacy(text: String): Array<BaseComponent> = TextComponent.fromLegacyText(text)
+private fun legacy(text: String, openUrl: String? = null): Array<BaseComponent> {
+    val components = TextComponent.fromLegacyText(text)
+    if (openUrl != null) {
+        val click = ClickEvent(ClickEvent.Action.OPEN_URL, openUrl)
+        components.forEach { it.clickEvent = click }
+    }
+    return components
+}
 
 private class BungeePlatform(private val plugin: Plugin) : Platform {
     override val platformName = "BungeeCord"
@@ -95,7 +105,7 @@ private class BungeePlayer(private val player: ProxiedPlayer) : PlatformPlayer {
 
     override fun hasPermission(permission: String) = player.hasPermission(permission)
     override fun disconnect(message: String) = player.disconnect(*legacy(message))
-    override fun sendMessage(message: String) = player.sendMessage(*legacy(message))
+    override fun sendMessage(message: String, openUrl: String?) = player.sendMessage(*legacy(message, openUrl))
 
     override fun redirectTo(serverName: String): Boolean {
         val target = ProxyServer.getInstance().getServerInfo(serverName) ?: return false
@@ -116,14 +126,7 @@ private class BungeeActor(private val sender: CommandSender) : CommandActor {
     }
 
     override fun hasPermission(permission: String) = sender.hasPermission(permission)
-    override fun sendMessage(message: String, openUrl: String?) {
-        val components = legacy(message)
-        if (openUrl != null) {
-            val click = ClickEvent(ClickEvent.Action.OPEN_URL, openUrl)
-            components.forEach { it.clickEvent = click }
-        }
-        sender.sendMessage(*components)
-    }
+    override fun sendMessage(message: String, openUrl: String?) = sender.sendMessage(*legacy(message, openUrl))
 }
 
 private class BungeeCommand(private val spec: CommandSpec) : Command(spec.name, null, *spec.aliases.toTypedArray()), TabExecutor {
@@ -139,13 +142,13 @@ internal class BungeeListener(private val core: ProxyToolsCore, private val plug
     @EventHandler
     fun onPing(event: ProxyPingEvent) {
         val ping = event.response
-        val players = ping.players
-        val override = core.motd.build(players.online, players.max) ?: return
+        val players: ServerPing.Players? = ping.players
+        val override = core.motd.build(players?.online ?: 0, players?.max ?: 0) ?: return
 
         override.description?.let { ping.descriptionComponent = TextComponent(*legacy(it)) }
-        override.maxPlayers?.let { players.max = it }
+        override.maxPlayers?.let { players?.max = it }
         override.hoverLines?.let { lines ->
-            players.sample = lines.map { ServerPing.PlayerInfo(it, MotdService.HOVER_UUID) }.toTypedArray()
+            players?.sample = lines.map { ServerPing.PlayerInfo(it, MotdService.HOVER_UUID) }.toTypedArray()
         }
         override.versionName?.let { ping.version = ServerPing.Protocol(it, -1) }
         favicons.get(override.faviconBytes)?.let { ping.setFavicon(it) }
@@ -178,7 +181,7 @@ internal class BungeeListener(private val core: ProxyToolsCore, private val plug
 
     @EventHandler
     fun onServerSwitch(event: ServerSwitchEvent) {
-        if (event.from == null) core.maintenance.notifyBypass(BungeePlayer(event.player))
+        if (event.from == null) core.playerJoined(BungeePlayer(event.player))
         event.player.server?.info?.name?.let { core.lastServers.record(event.player.uniqueId, it) }
     }
 

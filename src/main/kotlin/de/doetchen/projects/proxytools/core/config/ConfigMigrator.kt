@@ -15,7 +15,7 @@ internal object ConfigMigrator {
     fun migrateInPlace(file: Path, steps: List<MigrationStep> = this.steps) {
         if (Files.notExists(file)) return
         @Suppress("UNCHECKED_CAST")
-        val root = YamlFiles.read(file) as? MutableMap<String, Any?> ?: return
+        val root = runCatching { YamlFiles.read(file) }.getOrNull() as? MutableMap<String, Any?> ?: return
 
         val target = steps.size + 1
         val version = (root["config-version"] as? Number)?.toInt() ?: 0
