@@ -89,14 +89,20 @@ internal class MaintenanceStore(
         if (fromLegacyFile && (resolved.isNotEmpty() || pending.isNotEmpty())) saveWhitelist()
     }
 
-    fun setEnabled(value: Boolean, reason: String? = null) {
-        enabled = value
+    fun startMaintenance(reason: String?, until: Long?) {
+        enabled = true
         maintenanceReason = reason
+        maintenanceUntil = until
+        scheduledStart = null
+        scheduledDuration = null
+        scheduledReason = null
         saveState()
     }
 
-    fun setMaintenanceUntil(value: Long?) {
-        maintenanceUntil = value
+    fun stopMaintenance() {
+        enabled = false
+        maintenanceReason = null
+        maintenanceUntil = null
         saveState()
     }
 

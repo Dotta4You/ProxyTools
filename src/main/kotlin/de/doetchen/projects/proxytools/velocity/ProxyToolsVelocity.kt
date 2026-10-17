@@ -72,6 +72,7 @@ class ProxyToolsVelocity @Inject constructor(
             server.eventManager.unregisterListeners(this)
             if (::core.isInitialized) {
                 core.commands.specs().flatMap { listOf(it.name) + it.aliases }.forEach { server.commandManager.unregister(it) }
+                core.shutdown()
             }
         }
     }

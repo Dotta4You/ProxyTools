@@ -38,6 +38,14 @@ internal class InfoCommandTest : CoreTestBase() {
     }
 
     @Test
+    fun `upper case info command names are accepted without a warning`() {
+        val core = core("info-commands:\n  Discord:\n    aliases: [DC]\n    text: hi\n")
+
+        assertEquals(listOf("discord"), core.infoCommands.definitions().map { it.name })
+        assertEquals(emptyList(), ConfigValidator.check(core.config))
+    }
+
+    @Test
     fun `an info command shows its text with a link, respects its permission and can be removed`() {
         val core = core(infoConfig)
         chatter("Other")

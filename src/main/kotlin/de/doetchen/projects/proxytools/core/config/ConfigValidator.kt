@@ -1,8 +1,8 @@
 package de.doetchen.projects.proxytools.core.config
 
-internal object ConfigValidator {
-    private val NAME = Regex("[a-z0-9_-]+")
+import de.doetchen.projects.proxytools.core.command.InfoCommandParser
 
+internal object ConfigValidator {
     fun check(config: YamlConfig): List<String> = buildList {
         fun oneOf(path: String, vararg allowed: String) {
             val value = config.get(path)?.toString()?.trim()?.lowercase() ?: return
@@ -42,27 +42,6 @@ internal object ConfigValidator {
         }
         seconds("maintenance.timer-warnings")
         seconds("maintenance.schedule-warnings")
-        addAll(infoCommands(config))
-    }
-
-    private fun infoCommands(config: YamlConfig): List<String> = buildList {
-        val commands = config.get("info-commands") as? Map<*, *> ?: return@buildList
-        commands.forEach { (key, value) ->
-            val name = key.toString()
-            val data = value as? Map<*, *>
-            when {
-                !NAME.matches(name) -> add("info-commands.$name is skipped, names may only contain a-z, 0-9, _ and -.")
-                data == null || data["text"] == null -> add("info-commands.$name is skipped, it needs a text.")
-                else -> {
-                    val url = data["url"]?.toString()
-                    if (url != null && !url.startsWith("http://") && !url.startsWith("https://")) {
-                        add("info-commands.$name.url must start with http:// or https://, the link is ignored.")
-                    }
-                    (data["aliases"] as? List<*>).orEmpty().map { it.toString() }.filterNot(NAME::matches).forEach {
-                        add("info-commands.$name has the invalid alias '$it', it is ignored.")
-                    }
-                }
-            }
-        }
+        addAll(InfoCommandParser.parse(config.get("info-commands")).problems)
     }
 }

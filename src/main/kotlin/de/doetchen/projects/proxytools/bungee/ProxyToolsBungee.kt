@@ -55,6 +55,7 @@ class ProxyToolsBungee : Plugin() {
             logger.severe("ProxyTools failed to start, disabling: ${e.message}")
             proxy.pluginManager.unregisterCommands(this)
             proxy.pluginManager.unregisterListeners(this)
+            if (::core.isInitialized) core.shutdown()
         }
     }
 

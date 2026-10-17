@@ -61,6 +61,35 @@ internal class MaintenanceScheduleTest : CoreTestBase() {
     }
 
     @Test
+    fun `a window that fully passed while offline is skipped`() {
+        val offline = core()
+        offline.maintenance.scheduleStart(60_000, 30_000)
+        offline.shutdown()
+
+        platform.advance(2 * 60 * 60_000)
+        val restarted = core()
+
+        assertFalse(restarted.maintenance.enabled)
+        assertTrue(restarted.maintenance.describeSchedule().contains("no window"))
+    }
+
+    @Test
+    fun `a window that is partly over after the restart only runs for its remaining time`() {
+        val offline = core()
+        offline.maintenance.scheduleStart(60_000, 30_000)
+        offline.shutdown()
+
+        platform.advance(70_000)
+        val restarted = core()
+
+        assertTrue(restarted.maintenance.enabled)
+        platform.advance(19_999)
+        assertTrue(restarted.maintenance.enabled)
+        platform.advance(1)
+        assertFalse(restarted.maintenance.enabled)
+    }
+
+    @Test
     fun `status reflects a pending schedule`() {
         val core = core()
         val admin = FakeActor(setOf(Permissions.MAINTENANCE))

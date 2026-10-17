@@ -12,11 +12,16 @@ internal class AnnouncementService(private val core: ProxyToolsCore) {
 
     @Synchronized
     fun restart() {
+        stop()
+        lastIndex = -1
+        if (core.config.boolean("announcements.enabled") && messages().isNotEmpty()) schedule(generation)
+    }
+
+    @Synchronized
+    fun stop() {
         task?.cancel()
         task = null
         generation++
-        lastIndex = -1
-        if (core.config.boolean("announcements.enabled") && messages().isNotEmpty()) schedule(generation)
     }
 
     private fun schedule(expectedGeneration: Int) {

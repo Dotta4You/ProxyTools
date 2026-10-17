@@ -69,6 +69,18 @@ internal class PlayerDataTest : CoreTestBase() {
     }
 
     @Test
+    fun `a second damaged players file does not replace the first one that was set aside`() {
+        Files.createDirectories(folder.resolve("data"))
+        Files.writeString(folder.resolve("data/players.yml.broken"), "first\n")
+        Files.writeString(folder.resolve("data/players.yml"), "players: {broken\n")
+
+        core()
+
+        assertEquals("first\n", Files.readString(folder.resolve("data/players.yml.broken")))
+        assertEquals("players: {broken\n", Files.readString(folder.resolve("data/players.yml.broken.1")))
+    }
+
+    @Test
     fun `a large players file suggests the h2 storage once`() {
         val many = (1..10_000).associate { UUID.randomUUID() to PlayerRecord("survival", false, emptyMap()) }
         YamlPlayerStorage(folder.resolve("data/players.yml")).save(many)

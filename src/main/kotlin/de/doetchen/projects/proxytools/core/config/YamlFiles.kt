@@ -4,7 +4,10 @@ import org.yaml.snakeyaml.DumperOptions
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
+import org.yaml.snakeyaml.error.YAMLException
 import java.io.Reader
+import java.io.Writer
+import java.nio.charset.CharacterCodingException
 import java.nio.charset.StandardCharsets
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -18,16 +21,31 @@ internal object YamlFiles {
 
     fun readOrQuarantine(file: Path): Map<*, *>? = try {
         read(file)
-    } catch (e: Exception) {
-        val broken = file.resolveSibling(file.fileName.toString() + ".broken")
-        runCatching { Files.move(file, broken, StandardCopyOption.REPLACE_EXISTING) }
-        throw IllegalStateException("${file.fileName} is not valid and was renamed to ${broken.fileName}: ${e.message}", e)
+    } catch (e: YAMLException) {
+        quarantine(file, e)
+    } catch (e: CharacterCodingException) {
+        quarantine(file, e)
+    }
+
+    private fun quarantine(file: Path, cause: Exception): Nothing {
+        val name = file.fileName.toString()
+        val broken = generateSequence(0) { it + 1 }
+            .map { file.resolveSibling(if (it == 0) "$name.broken" else "$name.broken.$it") }
+            .first { Files.notExists(it) }
+        runCatching { Files.move(file, broken) }
+        throw IllegalStateException("$name is not valid and was renamed to ${broken.fileName}: ${cause.message}", cause)
     }
 
     fun write(file: Path, data: Map<String, Any?>) {
         val options = DumperOptions().apply { defaultFlowStyle = DumperOptions.FlowStyle.BLOCK }
+        writeAtomically(file) { Yaml(options).dump(data, it) }
+    }
+
+    fun writeText(file: Path, text: String) = writeAtomically(file) { it.write(text) }
+
+    private fun writeAtomically(file: Path, body: (Writer) -> Unit) {
         val temp = file.resolveSibling(file.fileName.toString() + ".tmp")
-        Files.newBufferedWriter(temp, StandardCharsets.UTF_8).use { Yaml(options).dump(data, it) }
+        Files.newBufferedWriter(temp, StandardCharsets.UTF_8).use(body)
         try {
             Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         } catch (e: AtomicMoveNotSupportedException) {

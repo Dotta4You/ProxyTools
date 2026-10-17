@@ -77,6 +77,16 @@ internal class StorageTest : CoreTestBase() {
     }
 
     @Test
+    fun `sql storage cuts a server name that is longer than the column`() {
+        val storage = h2Memory("sql-long-name")
+        val name = "s".repeat(80)
+
+        storage.save(mapOf(id to PlayerRecord(name, false, emptyMap())))
+
+        assertEquals(name.take(64), storage.load(id)?.lastServer)
+    }
+
+    @Test
     fun `sql storage rejects a table prefix that could break the statements`() {
         assertFailsWith<IllegalArgumentException> {
             SqlPlayerStorage("x", "a; DROP TABLE b;--") { error("never connects") }

@@ -31,7 +31,7 @@ internal object ConfigMigrator {
     private fun stamp(file: Path, version: Int) {
         val text = Files.readString(file)
         val line = "config-version: $version"
-        Files.writeString(file, if (VERSION_LINE.containsMatchIn(text)) VERSION_LINE.replace(text, line) else "$line\n$text")
+        YamlFiles.writeText(file, if (VERSION_LINE.containsMatchIn(text)) VERSION_LINE.replace(text, line) else "$line\n$text")
     }
 
     fun MutableMap<String, Any?>.moveValue(fromPath: String, toPath: String) {

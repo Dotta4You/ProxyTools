@@ -95,7 +95,7 @@ internal class SqlPlayerStorage(
             return
         }
         val updated = conn.prepareStatement("UPDATE $players SET last_server = ?, messages_disabled = ? WHERE uuid = ?").use {
-            it.setString(1, record.lastServer)
+            it.setString(1, record.lastServer?.take(MAX_NAME_LENGTH))
             it.setBoolean(2, record.messagesDisabled)
             it.setString(3, id)
             it.executeUpdate()
@@ -103,7 +103,7 @@ internal class SqlPlayerStorage(
         if (updated == 0) {
             conn.prepareStatement("INSERT INTO $players (uuid, last_server, messages_disabled) VALUES (?, ?, ?)").use {
                 it.setString(1, id)
-                it.setString(2, record.lastServer)
+                it.setString(2, record.lastServer?.take(MAX_NAME_LENGTH))
                 it.setBoolean(3, record.messagesDisabled)
                 it.executeUpdate()
             }
@@ -113,7 +113,7 @@ internal class SqlPlayerStorage(
                 record.ignored.forEach { (other, otherName) ->
                     statement.setString(1, id)
                     statement.setString(2, other.toString())
-                    statement.setString(3, otherName.take(64))
+                    statement.setString(3, otherName.take(MAX_NAME_LENGTH))
                     statement.addBatch()
                 }
                 statement.executeBatch()
@@ -156,6 +156,7 @@ internal class SqlPlayerStorage(
 
     private companion object {
         val TABLE_PREFIX = Regex("[A-Za-z0-9_]*")
+        const val MAX_NAME_LENGTH = 64
         const val VALIDATION_TIMEOUT_SECONDS = 2
         const val RETRY_MILLIS = 15_000L
     }

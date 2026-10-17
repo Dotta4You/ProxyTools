@@ -56,12 +56,12 @@ internal class MaintenanceService(private val core: ProxyToolsCore) {
     fun setEnabled(value: Boolean, reason: String? = null): ToggleResult {
         if (enabled == value) return ToggleResult.Unchanged
         if (value) {
-            clearSchedule()
+            cancel(startTasks)
+            core.store.startMaintenance(reason, null)
         } else {
             cancel(endTasks)
-            core.store.setMaintenanceUntil(null)
+            core.store.stopMaintenance()
         }
-        core.store.setEnabled(value, reason.takeIf { value })
         return ToggleResult.Changed(if (value) kickIfConfigured() else 0)
     }
 
@@ -69,9 +69,8 @@ internal class MaintenanceService(private val core: ProxyToolsCore) {
     fun enableFor(durationMillis: Long, reason: String? = null): TimerResult {
         require(durationMillis > 0) { "durationMillis must be positive" }
         if (core.store.maintenanceUntil != null) return TimerResult.AlreadyRunning
-        clearSchedule()
-        core.store.setEnabled(true, reason)
-        core.store.setMaintenanceUntil(core.platform.now() + durationMillis)
+        cancel(startTasks)
+        core.store.startMaintenance(reason, core.platform.now() + durationMillis)
         val kicked = kickIfConfigured()
         armEndTimer()
         return TimerResult.Started(kicked)
@@ -94,10 +93,9 @@ internal class MaintenanceService(private val core: ProxyToolsCore) {
     fun resumeTimerIfNeeded() {
         val until = core.store.maintenanceUntil ?: return
         when {
-            !enabled -> core.store.setMaintenanceUntil(null)
+            !enabled -> core.store.stopMaintenance()
             until <= core.platform.now() -> {
-                core.store.setMaintenanceUntil(null)
-                core.store.setEnabled(false)
+                core.store.stopMaintenance()
                 core.platform.info("Maintenance timer elapsed while offline, maintenance is now disabled.")
             }
             else -> armEndTimer()
@@ -158,12 +156,23 @@ internal class MaintenanceService(private val core: ProxyToolsCore) {
             enabled -> core.store.setSchedule(null, null)
             start <= core.platform.now() -> {
                 val reason = core.store.scheduledReason
+                val remaining = start + duration - core.platform.now()
                 core.store.setSchedule(null, null)
-                core.platform.info("A scheduled maintenance window was reached while offline; starting it now.")
-                enableFor(duration, reason)
+                if (remaining > 0) {
+                    core.platform.info("A scheduled maintenance window was reached while offline; starting it now.")
+                    enableFor(remaining, reason)
+                } else {
+                    core.platform.info("A scheduled maintenance window passed while offline and is skipped.")
+                }
             }
             else -> armStartTimer()
         }
+    }
+
+    @Synchronized
+    fun stop() {
+        cancel(endTasks)
+        cancel(startTasks)
     }
 
     private fun secondsUntil(targetMillis: Long) = ((targetMillis - core.platform.now()) / 1000).coerceAtLeast(0)
@@ -214,8 +223,7 @@ internal class MaintenanceService(private val core: ProxyToolsCore) {
     private fun onTimerElapsed() {
         endTasks.clear()
         if (!enabled) return
-        core.store.setMaintenanceUntil(null)
-        core.store.setEnabled(false)
+        core.store.stopMaintenance()
         core.broadcast(core.message("timer-ended"))
     }
 
@@ -229,8 +237,6 @@ internal class MaintenanceService(private val core: ProxyToolsCore) {
         startTasks.clear()
         val duration = core.store.scheduledDuration
         if (enabled || core.store.scheduledStart == null || duration == null) return
-        val reason = core.store.scheduledReason
-        core.store.setSchedule(null, null)
-        enableFor(duration, reason)
+        enableFor(duration, core.store.scheduledReason)
     }
 }

@@ -59,38 +59,51 @@ internal class ProxyToolsCore(val platform: Platform, releases: ReleaseSource) {
     val commands = CommandHandler(this)
 
     init {
-        validate(config)
-        guarded("Could not read the maintenance data, using what could be read") { store.load() }
-        guarded("Could not read the saved player settings, starting without them") { playerData.load() }
-        adviseOnLargePlayerFile()
-        guarded("Could not resume the maintenance timer") { maintenance.resumeTimerIfNeeded() }
-        guarded("Could not resume the scheduled maintenance window") { maintenance.resumeScheduleIfNeeded() }
-        warnAboutMissingServers()
-        guarded("Could not start the announcements") { announcements.restart() }
-        updates.restart()
-        logStartupBanner()
+        try {
+            validate(config)
+            guarded("Could not read the maintenance data, using what could be read") { store.load() }
+            guarded("Could not read the saved player settings, starting without them") { playerData.load() }
+            adviseOnLargePlayerFile()
+            guarded("Could not resume the maintenance timer") { maintenance.resumeTimerIfNeeded() }
+            guarded("Could not resume the scheduled maintenance window") { maintenance.resumeScheduleIfNeeded() }
+            warnAboutMissingServers()
+            guarded("Could not start the announcements") { announcements.restart() }
+            updates.restart()
+            logStartupBanner()
+        } catch (e: Exception) {
+            shutdown()
+            throw e
+        }
     }
 
-    fun reload(): Boolean = try {
-        migrateConfig()
-        val newConfig = YamlConfig.load(platform.dataFolder, "config.yml")
-        val newLanguage = resolveLanguageCode(newConfig)
-        val newMessages = loadLanguageFile(newLanguage)
-        config = newConfig
-        language = newLanguage
-        messages = newMessages
-        validate(newConfig)
-        warnAboutMissingServers()
-        announcements.restart()
-        updates.restart()
-        infoCommands.warnIfChanged()
-        if (StorageFactory.signature(newConfig) != storageSignature) {
-            platform.warn("The storage settings changed, restart the proxy to apply them.")
+    fun reload(): Boolean {
+        val previous = Triple(config, language, messages)
+        return try {
+            migrateConfig()
+            val newConfig = YamlConfig.load(platform.dataFolder, "config.yml")
+            val newLanguage = resolveLanguageCode(newConfig)
+            val newMessages = loadLanguageFile(newLanguage)
+            config = newConfig
+            language = newLanguage
+            messages = newMessages
+            validate(newConfig)
+            warnAboutMissingServers()
+            announcements.restart()
+            updates.restart()
+            infoCommands.warnIfChanged()
+            if (StorageFactory.signature(newConfig) != storageSignature) {
+                platform.warn("The storage settings changed, restart the proxy to apply them.")
+            }
+            true
+        } catch (e: Exception) {
+            config = previous.first
+            language = previous.second
+            messages = previous.third
+            guarded("Could not restart the announcements") { announcements.restart() }
+            guarded("Could not restart the update checker") { updates.restart() }
+            platform.warn("Reload failed, keeping the previous configuration: ${e.message}")
+            false
         }
-        true
-    } catch (e: Exception) {
-        platform.warn("Reload failed, keeping the previous configuration: ${e.message}")
-        false
     }
 
     fun message(key: String, vararg placeholders: Pair<String, String>): String {
@@ -107,7 +120,12 @@ internal class ProxyToolsCore(val platform: Platform, releases: ReleaseSource) {
         "storage_type" to { playerData.storageName.substringBefore(" (") },
     )
 
-    fun shutdown() = guarded("Could not save player data") { playerData.close() }
+    fun shutdown() {
+        announcements.stop()
+        updates.stop()
+        maintenance.stop()
+        guarded("Could not save player data") { playerData.close() }
+    }
 
     fun userMessage(key: String, userText: String, vararg placeholders: Pair<String, String>): String =
         message(key, "message" to USER_TEXT_MARK, *placeholders).replace(USER_TEXT_MARK, userText.replace('§', ' '))

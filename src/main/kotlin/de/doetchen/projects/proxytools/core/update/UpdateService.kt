@@ -40,10 +40,15 @@ internal class UpdateService(private val core: ProxyToolsCore, private val sourc
 
     @Synchronized
     fun restart() {
+        stop()
+        if (enabled) schedule(INITIAL_DELAY_MILLIS, generation)
+    }
+
+    @Synchronized
+    fun stop() {
         task?.cancel()
         task = null
         generation++
-        if (enabled) schedule(INITIAL_DELAY_MILLIS, generation)
     }
 
     fun checkNow(onDone: (Outcome) -> Unit) {
